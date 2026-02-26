@@ -9,21 +9,30 @@ import (
 )
 
 const (
-	defaultSite       = "datadoghq.com"
-	configDir         = ".datadog-cli"
-	configFile        = "config.yaml"
-	defaultProfile    = "default"
-	envAPIKey         = "DD_API_KEY"
-	envAppKey         = "DD_APP_KEY"
-	envSite           = "DD_SITE"
+	defaultSite    = "datadoghq.com"
+	configDir      = ".datadog-cli"
+	configFileName = "config.yaml"
+	envAPIKey      = "DD_API_KEY"
+	envAppKey      = "DD_APP_KEY"
+	envSite        = "DD_SITE"
 )
+
+// ValidSites maps Datadog site hostnames to their region names.
+var ValidSites = map[string]string{
+	"datadoghq.com":    "US1 (default)",
+	"us3.datadoghq.com": "US3",
+	"us5.datadoghq.com": "US5",
+	"datadoghq.eu":     "EU",
+	"ap1.datadoghq.com": "AP1",
+	"ap2.datadoghq.com": "AP2",
+	"ddog-gov.com":     "US1-FED (Government)",
+}
 
 // Credentials holds Datadog API credentials.
 type Credentials struct {
 	APIKey  string
 	AppKey  string
 	Site    string
-	Profile string
 }
 
 // Profile represents a named credential profile in the config file.
@@ -34,66 +43,104 @@ type Profile struct {
 }
 
 // Config is the structure of ~/.datadog-cli/config.yaml.
+//
+// Example:
+//
+//	api_key: "key"
+//	app_key: "key"
+//	site: "datadoghq.com"
+//	profiles:
+//	  prod:
+//	    api_key: "prod-key"
+//	    app_key: "prod-key"
+//	    site: "datadoghq.com"
 type Config struct {
-	DefaultProfile string             `yaml:"default_profile"`
-	Profiles       map[string]Profile `yaml:"profiles"`
+	APIKey   string             `yaml:"api_key"`
+	AppKey   string             `yaml:"app_key"`
+	Site     string             `yaml:"site"`
+	Profiles map[string]Profile `yaml:"profiles"`
 }
 
-// Resolve resolves credentials from flags, environment variables, and config file.
-// Priority: flags > env vars > config file.
-func Resolve(flagAPIKey, flagAppKey, flagSite, flagProfile string) (*Credentials, error) {
-	creds := &Credentials{
-		APIKey:  flagAPIKey,
-		AppKey:  flagAppKey,
-		Site:    flagSite,
-		Profile: flagProfile,
-	}
+// ResolveCredentials resolves credentials from flags, environment variables, and config file.
+//
+// Priority order (highest to lowest):
+//  1. CLI flags (flagAPIKey, flagAppKey, flagSite) if non-empty
+//  2. Environment variables DD_API_KEY, DD_APP_KEY, DD_SITE
+//  3. Config file (~/.datadog-cli/config.yaml)
+//     - If flagProfile is set, load from profiles[flagProfile]
+//     - Otherwise load from top-level api_key/app_key/site fields
+//
+// Default site is "datadoghq.com" if not set anywhere.
+// Returns an error if neither API key nor app key is found after checking all sources.
+func ResolveCredentials(flagAPIKey, flagAppKey, flagSite, flagProfile string) (*Credentials, error) {
+	creds := &Credentials{}
 
-	// Fill from env vars if not set by flags
-	if creds.APIKey == "" {
-		creds.APIKey = os.Getenv(envAPIKey)
-	}
-	if creds.AppKey == "" {
-		creds.AppKey = os.Getenv(envAppKey)
-	}
-	if creds.Site == "" {
-		creds.Site = os.Getenv(envSite)
-	}
-
-	// Fill from config file if still missing
-	if creds.APIKey == "" || creds.AppKey == "" {
-		cfg, err := loadConfig()
-		if err == nil {
-			profile := creds.Profile
-			if profile == "" {
-				profile = cfg.DefaultProfile
-			}
-			if profile == "" {
-				profile = defaultProfile
-			}
-			if p, ok := cfg.Profiles[profile]; ok {
-				if creds.APIKey == "" {
-					creds.APIKey = p.APIKey
+	// Priority 3 (lowest): config file
+	cfg, cfgErr := loadConfigFile()
+	if cfgErr == nil {
+		if flagProfile != "" {
+			// Load from named profile
+			if p, ok := cfg.Profiles[flagProfile]; ok {
+				creds.APIKey = p.APIKey
+				creds.AppKey = p.AppKey
+				creds.Site = p.Site
+			} else {
+				// Profile specified but not found - collect available profiles for error message
+				available := make([]string, 0, len(cfg.Profiles))
+				for name := range cfg.Profiles {
+					available = append(available, name)
 				}
-				if creds.AppKey == "" {
-					creds.AppKey = p.AppKey
+				if len(available) > 0 {
+					return nil, fmt.Errorf("profile %q not found in config; available profiles: %v", flagProfile, available)
 				}
-				if creds.Site == "" {
-					creds.Site = p.Site
-				}
+				return nil, fmt.Errorf("profile %q not found in config; no profiles are defined", flagProfile)
 			}
+		} else {
+			// Load from top-level config fields
+			creds.APIKey = cfg.APIKey
+			creds.AppKey = cfg.AppKey
+			creds.Site = cfg.Site
 		}
 	}
 
-	// Apply default site
+	// Priority 2: environment variables (override config file)
+	if v := os.Getenv(envAPIKey); v != "" {
+		creds.APIKey = v
+	}
+	if v := os.Getenv(envAppKey); v != "" {
+		creds.AppKey = v
+	}
+	if v := os.Getenv(envSite); v != "" {
+		creds.Site = v
+	}
+
+	// Priority 1 (highest): CLI flags (override everything)
+	if flagAPIKey != "" {
+		creds.APIKey = flagAPIKey
+	}
+	if flagAppKey != "" {
+		creds.AppKey = flagAppKey
+	}
+	if flagSite != "" {
+		creds.Site = flagSite
+	}
+
+	// Apply default site if still unset
 	if creds.Site == "" {
 		creds.Site = defaultSite
+	}
+
+	// Validate that at least one key was found
+	if creds.APIKey == "" && creds.AppKey == "" {
+		return nil, fmt.Errorf(
+			"no credentials found: set DD_API_KEY/DD_APP_KEY env vars, use --api-key/--app-key flags, or configure ~/.datadog-cli/config.yaml",
+		)
 	}
 
 	return creds, nil
 }
 
-// Validate checks that required credentials are present.
+// Validate checks that all required credentials are present.
 func Validate(creds *Credentials) error {
 	if creds.APIKey == "" {
 		return fmt.Errorf("API key is required: set DD_API_KEY env var, --api-key flag, or configure ~/.datadog-cli/config.yaml")
@@ -104,32 +151,45 @@ func Validate(creds *Credentials) error {
 	return nil
 }
 
-// loadConfig reads the config file from ~/.datadog-cli/config.yaml.
-func loadConfig() (*Config, error) {
+// loadConfigFile reads and parses the YAML config file at ~/.datadog-cli/config.yaml.
+// Returns nil error and empty Config if the file does not exist.
+func loadConfigFile() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("getting home dir: %w", err)
 	}
 
-	path := filepath.Join(home, configDir, configFile)
+	path := filepath.Join(home, configDir, configFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file: %w", err)
+		if os.IsNotExist(err) {
+			return &Config{}, nil
+		}
+		return nil, fmt.Errorf("reading config file %s: %w", path, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file: %w", err)
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
 	return &cfg, nil
 }
 
-// ConfigPath returns the path to the config file.
+// ConfigPath returns the expected path to the config file.
 func ConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting home dir: %w", err)
 	}
-	return filepath.Join(home, configDir, configFile), nil
+	return filepath.Join(home, configDir, configFileName), nil
+}
+
+// APIBaseURL returns the Datadog API base URL for the given site.
+// For example, "datadoghq.com" -> "https://api.datadoghq.com".
+func APIBaseURL(site string) string {
+	if site == "ddog-gov.com" {
+		return "https://api.ddog-gov.com"
+	}
+	return fmt.Sprintf("https://api.%s", site)
 }
