@@ -87,7 +87,7 @@ func runMonitorsList(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(raw) == 0 {
-		fmt.Fprintln(os.Stdout, "No monitors found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No monitors found.")
 		return nil
 	}
 
@@ -234,7 +234,7 @@ func runMonitorsGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "Monitor: %s\n\n", name)
+	_, _ = fmt.Fprintf(os.Stdout, "Monitor: %s\n\n", name)
 
 	type detailRow struct {
 		Field string
@@ -327,7 +327,7 @@ func runMonitorsSearch(cmd *cobra.Command, args []string) error {
 	monitorsRaw, _ := raw["monitors"].([]interface{})
 
 	if len(monitorsRaw) == 0 {
-		fmt.Fprintf(os.Stdout, "No monitors found matching %q.\n", monitorsSearchQuery)
+		_, _ = fmt.Fprintf(os.Stdout, "No monitors found matching %q.\n", monitorsSearchQuery)
 		return nil
 	}
 

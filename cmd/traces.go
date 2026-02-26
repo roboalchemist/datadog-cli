@@ -227,7 +227,7 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stdout, "No spans found matching your query.")
+		_, _ = fmt.Fprintln(os.Stdout, "No spans found matching your query.")
 		return nil
 	}
 
@@ -344,7 +344,7 @@ func runTracesAggregate(cmd *cobra.Command, args []string) error {
 	dataField, _ := raw["data"].([]interface{})
 
 	if len(dataField) == 0 {
-		fmt.Fprintln(os.Stdout, "No spans found for aggregation.")
+		_, _ = fmt.Fprintln(os.Stdout, "No spans found for aggregation.")
 		return nil
 	}
 
@@ -437,7 +437,7 @@ func runTracesGet(cmd *cobra.Command, args []string) error {
 	// Extract span data from response
 	data, _ := raw["data"].(map[string]interface{})
 	if data == nil {
-		fmt.Fprintln(os.Stdout, "Span not found.")
+		_, _ = fmt.Fprintln(os.Stdout, "Span not found.")
 		return nil
 	}
 

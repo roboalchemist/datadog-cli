@@ -93,7 +93,7 @@ func runUsageSummary(cmd *cobra.Command, args []string) error {
 	usageArr, _ := raw["usage"].([]interface{})
 
 	if len(usageArr) == 0 {
-		fmt.Fprintln(os.Stdout, "No usage data found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No usage data found.")
 		return nil
 	}
 
@@ -206,7 +206,7 @@ func runUsageTopMetrics(cmd *cobra.Command, args []string) error {
 	usageArr, _ := raw["usage"].([]interface{})
 
 	if len(usageArr) == 0 {
-		fmt.Fprintln(os.Stdout, "No top metrics data found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No top metrics data found.")
 		return nil
 	}
 

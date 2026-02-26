@@ -62,7 +62,7 @@ func runUsersList(cmd *cobra.Command, args []string) error {
 	dataArr, _ := raw["data"].([]interface{})
 
 	if len(dataArr) == 0 {
-		fmt.Fprintln(os.Stdout, "No users found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No users found.")
 		return nil
 	}
 
@@ -155,7 +155,7 @@ func runUsersGet(cmd *cobra.Command, args []string) error {
 	}
 
 	email := usersStringField(attrs, "email")
-	fmt.Fprintf(os.Stdout, "User: %s\n\n", email)
+	_, _ = fmt.Fprintf(os.Stdout, "User: %s\n\n", email)
 
 	created := usersFormatTimestamp(attrs["created_at"])
 	modified := usersFormatTimestamp(attrs["modified_at"])

@@ -105,7 +105,7 @@ func RenderJSON(data interface{}, opts Options) error {
 	if err := json.Indent(&buf, b, "", "  "); err != nil {
 		return fmt.Errorf("indenting JSON: %w", err)
 	}
-	fmt.Fprintln(os.Stdout, buf.String())
+	_, _ = fmt.Fprintln(os.Stdout, buf.String())
 	return nil
 }
 
@@ -150,7 +150,7 @@ func (p *Printer) PrintJSON(data interface{}) error {
 	if err := json.Indent(&buf, b, "", "  "); err != nil {
 		return fmt.Errorf("indenting JSON: %w", err)
 	}
-	fmt.Fprintln(p.writer, buf.String())
+	_, _ = fmt.Fprintln(p.writer, buf.String())
 	return nil
 }
 
@@ -365,10 +365,8 @@ func renderPlaintext(w io.Writer, columns []ColumnConfig, rows [][]string) {
 	_ = columns // headers suppressed in plaintext mode
 	for _, row := range rows {
 		cells := make([]string, len(row))
-		for i, cell := range row {
-			cells[i] = cell
-		}
-		fmt.Fprintln(w, strings.Join(cells, "\t"))
+		copy(cells, row)
+		_, _ = fmt.Fprintln(w, strings.Join(cells, "\t"))
 	}
 }
 
@@ -453,7 +451,7 @@ func applyJQ(w io.Writer, data []byte, expr string) error {
 		if err != nil {
 			return fmt.Errorf("marshaling jq result: %w", err)
 		}
-		fmt.Fprintln(w, string(b))
+		_, _ = fmt.Fprintln(w, string(b))
 	}
 	return nil
 }

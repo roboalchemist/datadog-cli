@@ -18,7 +18,6 @@ var (
 	version        string
 	readmeContents string
 	skillMD        string
-	commandsRef    string
 	skillFS        fs.FS
 )
 
@@ -35,7 +34,7 @@ func SetReadmeContents(s string) {
 // SetSkillData sets the embedded skill markdown and filesystem.
 func SetSkillData(skillMarkdown, commandsReference string, skillFilesystem fs.FS) {
 	skillMD = skillMarkdown
-	commandsRef = commandsReference
+	_ = commandsReference
 	skillFS = skillFilesystem
 }
 

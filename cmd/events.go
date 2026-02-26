@@ -100,7 +100,7 @@ func runEventsList(cmd *cobra.Command, args []string) error {
 
 	eventsRaw, _ := raw["events"].([]interface{})
 	if len(eventsRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No events found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No events found.")
 		return nil
 	}
 
@@ -213,7 +213,7 @@ func runEventsGet(cmd *cobra.Command, args []string) error {
 		tags = strings.Join(tagStrs, ", ")
 	}
 
-	fmt.Fprintf(os.Stdout, "Event: %s\n\n", title)
+	_, _ = fmt.Fprintf(os.Stdout, "Event: %s\n\n", title)
 
 	type detailRow struct {
 		Field string

@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -91,7 +90,7 @@ func runMetricsList(cmd *cobra.Command, args []string) error {
 
 	metricsList, _ := raw["metrics"].([]interface{})
 	if len(metricsList) == 0 {
-		fmt.Fprintln(os.Stdout, "No metrics found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No metrics found.")
 		return nil
 	}
 
@@ -188,7 +187,7 @@ func runMetricsQuery(cmd *cobra.Command, args []string) error {
 
 	seriesList, _ := raw["series"].([]interface{})
 	if len(seriesList) == 0 {
-		fmt.Fprintln(os.Stdout, "No timeseries data found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No timeseries data found.")
 		return nil
 	}
 
@@ -312,7 +311,7 @@ func runMetricsSearch(cmd *cobra.Command, args []string) error {
 	results, _ := raw["results"].(map[string]interface{})
 	metricsList, _ := results["metrics"].([]interface{})
 	if len(metricsList) == 0 {
-		fmt.Fprintf(os.Stdout, "No metrics found matching %q.\n", metricsSearchQuery)
+		_, _ = fmt.Fprintf(os.Stdout, "No metrics found matching %q.\n", metricsSearchQuery)
 		return nil
 	}
 
@@ -339,32 +338,6 @@ func runMetricsSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	return output.RenderTable(cols, tableRows, rows, opts)
-}
-
-// metricsFormatTimestamp formats a unix timestamp (in seconds or milliseconds) for display.
-func metricsFormatTimestamp(ts interface{}) string {
-	var secs int64
-	switch v := ts.(type) {
-	case float64:
-		// Datadog returns timestamps in milliseconds in pointlist
-		if v > 1e12 {
-			secs = int64(v / 1000)
-		} else {
-			secs = int64(v)
-		}
-	case int64:
-		if v > 1e12 {
-			secs = v / 1000
-		} else {
-			secs = v
-		}
-	default:
-		return fmt.Sprintf("%v", ts)
-	}
-	if secs == 0 {
-		return ""
-	}
-	return time.Unix(secs, 0).UTC().Format("2006-01-02 15:04:05")
 }
 
 // ---- init ----

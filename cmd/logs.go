@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
@@ -176,7 +178,7 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stdout, "No logs found matching your query.")
+		_, _ = fmt.Fprintln(os.Stdout, "No logs found matching your query.")
 		return nil
 	}
 
@@ -285,7 +287,7 @@ func runLogsAggregate(cmd *cobra.Command, args []string) error {
 	bucketsRaw, _ := dataField["buckets"].([]interface{})
 
 	if len(bucketsRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No logs found for aggregation.")
+		_, _ = fmt.Fprintln(os.Stdout, "No logs found for aggregation.")
 		return nil
 	}
 
@@ -323,7 +325,7 @@ func runLogsAggregate(cmd *cobra.Command, args []string) error {
 	cols := make([]output.ColumnConfig, len(keyOrder))
 	for i, k := range keyOrder {
 		header := strings.ReplaceAll(k, "_", " ")
-		header = strings.Title(header)
+		header = cases.Title(language.Und).String(header)
 		cols[i] = output.ColumnConfig{Name: header}
 	}
 
@@ -373,7 +375,7 @@ func runLogsIndexes(cmd *cobra.Command, args []string) error {
 
 	indexList, _ := raw["indexes"].([]interface{})
 	if len(indexList) == 0 {
-		fmt.Fprintln(os.Stdout, "No log indexes found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No log indexes found.")
 		return nil
 	}
 

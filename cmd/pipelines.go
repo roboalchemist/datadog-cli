@@ -61,7 +61,7 @@ func runPipelinesList(cmd *cobra.Command, args []string) error {
 		if opts.JSON {
 			return output.RenderJSON(rawObj, opts)
 		}
-		fmt.Fprintln(os.Stdout, "No pipelines found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No pipelines found.")
 		return nil
 	}
 
@@ -70,7 +70,7 @@ func runPipelinesList(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(rawArr) == 0 {
-		fmt.Fprintln(os.Stdout, "No log pipelines found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No log pipelines found.")
 		return nil
 	}
 
@@ -153,7 +153,7 @@ func runPipelinesGet(cmd *cobra.Command, args []string) error {
 	}
 
 	name := pipelinesStringField(raw, "name")
-	fmt.Fprintf(os.Stdout, "Pipeline: %s\n\n", name)
+	_, _ = fmt.Fprintf(os.Stdout, "Pipeline: %s\n\n", name)
 
 	processors, _ := raw["processors"].([]interface{})
 	processorCount := fmt.Sprintf("%d", len(processors))

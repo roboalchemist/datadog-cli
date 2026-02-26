@@ -68,7 +68,7 @@ func runAPIKeysList(cmd *cobra.Command, args []string) error {
 	dataArr, _ := raw["data"].([]interface{})
 
 	if len(dataArr) == 0 {
-		fmt.Fprintln(os.Stdout, "No API keys found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No API keys found.")
 		return nil
 	}
 

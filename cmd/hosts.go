@@ -101,7 +101,7 @@ func runHostsList(cmd *cobra.Command, args []string) error {
 
 	hostList, _ := raw["host_list"].([]interface{})
 	if len(hostList) == 0 {
-		fmt.Fprintln(os.Stdout, "No hosts found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No hosts found.")
 		return nil
 	}
 

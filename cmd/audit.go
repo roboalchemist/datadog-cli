@@ -188,7 +188,7 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stdout, "No audit events found matching your query.")
+		_, _ = fmt.Fprintln(os.Stdout, "No audit events found matching your query.")
 		return nil
 	}
 
