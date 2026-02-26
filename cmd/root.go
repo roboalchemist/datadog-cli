@@ -66,6 +66,7 @@ Credentials are resolved from (in priority order):
 
 // Execute runs the root command.
 func Execute() {
+	rootCmd.Version = version
 	if err := rootCmd.Execute(); err != nil {
 		output.PrintError(err)
 		os.Exit(1)
