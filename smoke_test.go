@@ -1,6 +1,8 @@
+//go:build !integration
+
 // smoke_test.go — subprocess-based smoke tests that require no API key.
 // These run with plain `go test -v ./...` or `make test`.
-// No build tags are set, so they are always included.
+// Excluded when running integration tests to avoid TestMain conflict.
 
 package main_test
 
