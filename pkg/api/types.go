@@ -112,3 +112,62 @@ type PaginationMeta struct {
 	PageSize   int `json:"page_size"`
 	TotalCount int `json:"total_count"`
 }
+
+// ---- Traces / Spans API types ----
+
+// SpanEvent is a single span event returned by the spans search API (v2).
+type SpanEvent struct {
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Attributes SpanAttributes `json:"attributes"`
+}
+
+// SpanAttributes holds the fields of a span event.
+type SpanAttributes struct {
+	// Top-level span fields
+	Service      string                 `json:"service"`
+	ResourceName string                 `json:"resource_name"`
+	Name         string                 `json:"name"`
+	TraceID      string                 `json:"trace_id"`
+	SpanID       string                 `json:"span_id"`
+	Duration     int64                  `json:"duration"`
+	Error        int                    `json:"error"`
+	Timestamp    string                 `json:"timestamp"`
+	// Nested metadata
+	Meta    map[string]interface{} `json:"meta"`
+	Metrics map[string]interface{} `json:"metrics"`
+	Tags    []string               `json:"tags"`
+}
+
+// SpanSearchResponse is the response envelope for POST /api/v2/spans/events/search.
+type SpanSearchResponse struct {
+	Data []SpanEvent    `json:"data"`
+	Meta SpanSearchMeta `json:"meta"`
+}
+
+// SpanSearchMeta holds pagination metadata for span search responses.
+type SpanSearchMeta struct {
+	Page SpanSearchPage `json:"page"`
+}
+
+// SpanSearchPage contains cursor-based pagination info for span searches.
+type SpanSearchPage struct {
+	After string `json:"after"`
+}
+
+// SpanAggregateResponse is the response envelope for POST /api/v2/spans/analytics/aggregate.
+type SpanAggregateResponse struct {
+	Data []SpanAggregateBucket `json:"data"`
+}
+
+// SpanAggregateBucket is one result bucket from a span aggregation.
+type SpanAggregateBucket struct {
+	Type       string               `json:"type"`
+	Attributes SpanBucketAttributes `json:"attributes"`
+}
+
+// SpanBucketAttributes holds the by and compute fields of an aggregate bucket.
+type SpanBucketAttributes struct {
+	By      map[string]interface{} `json:"by"`
+	Compute map[string]interface{} `json:"compute"`
+}
