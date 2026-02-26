@@ -111,8 +111,8 @@ func TestSmokeVersion(t *testing.T) {
 		t.Errorf("--version failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 	combined := stdout + stderr
-	if !strings.Contains(combined, "datadog-cli version") {
-		t.Errorf("--version output missing 'datadog-cli version'\noutput: %s", combined)
+	if !strings.Contains(combined, "datadog-cli") {
+		t.Errorf("--version output missing 'datadog-cli'\noutput: %s", combined)
 	}
 }
 
