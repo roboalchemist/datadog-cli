@@ -282,3 +282,59 @@ type ServiceDependenciesResponse map[string]ServiceDependency
 type ServiceDependency struct {
 	Calls []string `json:"calls"`
 }
+
+// ---- Hosts API types ----
+
+// HostMeta holds metadata about a host (platform, CPU cores, agent version, OS).
+type HostMeta struct {
+	Platform     string `json:"platform"`
+	CPUCores     int    `json:"cpuCores"`
+	AgentVersion string `json:"agent_version"`
+	OS           string `json:"os"`
+}
+
+// HostMetrics holds CPU and load metrics for a host.
+type HostMetrics struct {
+	CPU  float64 `json:"cpu"`
+	Load float64 `json:"load"`
+	IOW  float64 `json:"iowait"`
+}
+
+// Host is a single host entry returned by GET /api/v1/hosts.
+type Host struct {
+	Name             string      `json:"name"`
+	HostName         string      `json:"host_name"`
+	IsUp             bool        `json:"is_up"`
+	IsMuted          bool        `json:"is_muted"`
+	LastReportedTime int64       `json:"last_reported_time"`
+	OS               string      `json:"os"`
+	Meta             HostMeta    `json:"meta"`
+	Metrics          HostMetrics `json:"metrics"`
+}
+
+// HostListResponse is the response envelope for GET /api/v1/hosts.
+type HostListResponse struct {
+	HostList      []Host `json:"host_list"`
+	TotalReturned int    `json:"total_returned"`
+	TotalMatching int    `json:"total_matching"`
+}
+
+// HostTotalsResponse is the response from GET /api/v1/hosts/totals.
+type HostTotalsResponse struct {
+	TotalActive int `json:"total_active"`
+	TotalUp     int `json:"total_up"`
+}
+
+// ---- Tags API types ----
+
+// TagHostsResponse is the response from GET /api/v1/tags/hosts.
+// It maps hostname → list of tags.
+type TagHostsResponse struct {
+	Tags map[string][]string `json:"tags"`
+}
+
+// TagHostResponse is the response from GET /api/v1/tags/hosts/{host_name}.
+// It returns the list of tags for a single host.
+type TagHostResponse struct {
+	Tags []string `json:"tags"`
+}
