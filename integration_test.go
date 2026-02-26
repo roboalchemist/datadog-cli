@@ -2,6 +2,23 @@
 
 package main_test
 
+// Integration tests for the datadog-cli binary.
+//
+// READONLY NOTE:
+// datadog-cli is a read-only tool — it only performs GET and POST/search
+// requests against the Datadog API.  All tests here are therefore inherently
+// read-only: no state is mutated in the mock server and no write-capable
+// commands exist in the binary.
+//
+// Running:
+//   make test-integration
+//   go test ./... -run TestIntegration -v -timeout 120s -tags integration
+//
+// The suite builds the binary once via TestMain, spins up a local httptest
+// server per test (or shares the same server via subtests), and exercises
+// every CLI command with table, JSON, plaintext, no-color, --fields, --jq,
+// and --debug output modes where applicable.
+
 import (
 	"encoding/json"
 	"fmt"
@@ -306,6 +323,10 @@ func newMockServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/v2/spans/analytics/aggregate", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"data":[{"type":"bucket","attributes":{"by":{"service":"api"},"compute":{"c0":10}}}]}`)
 	})
+	// Spans get by ID: /api/v2/spans/events/{span_id}
+	mux.HandleFunc("/api/v2/spans/events/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"data":{"id":"span-abc123","type":"span","attributes":{"timestamp":"2024-01-15T10:00:00Z","service":"api-gateway","resource_name":"GET /api/v1/users","duration":12300000,"trace_id":"trace-xyz","name":"http.request","meta":{"http.status_code":"200"}}}}`)
+	})
 
 	// Hosts
 	mux.HandleFunc("/api/v1/hosts", func(w http.ResponseWriter, r *http.Request) {
@@ -437,13 +458,13 @@ func newMockServer(t *testing.T) *httptest.Server {
 		writeJSON(w, `{"event":{"id":12345,"title":"Test Event","text":"Test event body","date_happened":1705316400,"priority":"normal","tags":["env:production"],"alert_type":"info"}}`)
 	})
 
-	// Downtimes list
-	mux.HandleFunc("/api/v1/downtime", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `[{"id":67890,"message":"Scheduled maintenance","scope":["*"],"start":1705316400,"end":1705320000,"active":true,"disabled":false}]`)
+	// Downtimes list — the CLI uses /api/v2/downtime
+	mux.HandleFunc("/api/v2/downtime", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"data":[{"id":"downtime-uuid-001","type":"downtime","attributes":{"message":"Scheduled maintenance","status":"active","schedule":{"start":"2024-01-15T22:00:00Z","end":"2024-01-16T02:00:00Z"}}}]}`)
 	})
 	// Downtime by ID
-	mux.HandleFunc("/api/v1/downtime/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `{"id":67890,"message":"Scheduled maintenance","scope":["*"],"start":1705316400,"end":1705320000,"active":true,"disabled":false}`)
+	mux.HandleFunc("/api/v2/downtime/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"data":{"id":"downtime-uuid-001","type":"downtime","attributes":{"message":"Scheduled maintenance","status":"active","timezone":"UTC","schedule":{"start":"2024-01-15T22:00:00Z","end":"2024-01-16T02:00:00Z"}}}}`)
 	})
 
 	// Notebooks list
@@ -455,17 +476,22 @@ func newMockServer(t *testing.T) *httptest.Server {
 		writeJSON(w, `{"data":{"id":11111,"type":"notebooks","attributes":{"name":"Investigation Notebook","status":"published","cells":[],"author":{"name":"Alice Admin","email":"alice@example.com"},"created":"2024-01-01T00:00:00Z","modified":"2024-06-01T00:00:00Z"}}}`)
 	})
 
-	// Usage
-	mux.HandleFunc("/api/v1/usage/timeseries", func(w http.ResponseWriter, r *http.Request) {
+	// Usage summary — the CLI uses /api/v1/usage/summary
+	mux.HandleFunc("/api/v1/usage/summary", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"usage":[{"hour":"2024-01-15T00","infra_host_top99p":5,"apm_host_top99p":2,"custom_ts_avg":1000}]}`)
 	})
-	mux.HandleFunc("/api/v2/usage/top_avg_metrics", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, `{"data":[{"type":"usage_timeseries","attributes":{"metric_name":"system.cpu.user","avg_metric_hour":42.5}}]}`)
+	// Usage top-metrics — the CLI uses /api/v1/usage/top_avg_metrics
+	mux.HandleFunc("/api/v1/usage/top_avg_metrics", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"usage":[{"metric_name":"system.cpu.user","avg_metric_hour":42.5,"max_metric_hour":100.0}]}`)
 	})
 
-	// Tags
+	// Tags list — /api/v1/tags/hosts returns tag→host mapping
 	mux.HandleFunc("/api/v1/tags/hosts", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"tags":{"env:production":["web-server-01","web-server-02"],"team:platform":["web-server-01"]}}`)
+	})
+	// Tags get by hostname — /api/v1/tags/hosts/{hostname}
+	mux.HandleFunc("/api/v1/tags/hosts/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"tags":["env:production","team:platform","role:webserver"]}`)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -589,7 +615,8 @@ func assertSuccess(t *testing.T, label, stdout, stderr string, err error) {
 	}
 }
 
-// testOutputFormats runs the given args in table, JSON, plaintext, and no-color modes.
+// testOutputFormats runs the given args in table, JSON, plaintext, no-color,
+// --fields, and --jq modes, asserting success and non-empty output for each.
 func testOutputFormats(t *testing.T, label string, mockURL string, args []string) {
 	t.Helper()
 
@@ -623,6 +650,24 @@ func testOutputFormats(t *testing.T, label string, mockURL string, args []string
 		stdout, stderr, err := runCLI(t, mockURL, ncArgs...)
 		assertSuccess(t, label+"/no-color", stdout, stderr, err)
 		assertNonEmpty(t, label+"/no-color stdout", stdout)
+	})
+
+	// --fields flag: request a subset of columns (we just verify it doesn't crash
+	// and produces non-empty output; field filtering is output-mode dependent).
+	t.Run("fields", func(t *testing.T) {
+		fieldsArgs := append(args, "--fields", "id,name")
+		stdout, stderr, err := runCLI(t, mockURL, fieldsArgs...)
+		// Fields filtering may produce empty output if the fields don't match,
+		// but the command itself must succeed (exit 0).
+		assertSuccess(t, label+"/fields", stdout, stderr, err)
+	})
+
+	// --jq flag: apply a simple identity expression to JSON output.
+	t.Run("jq", func(t *testing.T) {
+		jqArgs := append(args, "--json", "--jq", ".")
+		stdout, stderr, err := runCLI(t, mockURL, jqArgs...)
+		assertSuccess(t, label+"/jq", stdout, stderr, err)
+		assertValidJSON(t, label+"/jq stdout", stdout)
 	})
 }
 
@@ -692,6 +737,16 @@ func TestIntegrationAuthScopes(t *testing.T) {
 	})
 }
 
+// TestIntegrationDebugFlag verifies that --debug does not cause commands to fail
+// and produces some output (debug info goes to stderr, normal output to stdout).
+func TestIntegrationDebugFlag(t *testing.T) {
+	srv := newMockServer(t)
+	stdout, _, err := runCLI(t, srv.URL, "hosts", "list", "--debug")
+	assertSuccess(t, "debug flag", stdout, "", err)
+	// stdout should still have table output; debug info goes to stderr
+	assertNonEmpty(t, "debug flag stdout", stdout)
+}
+
 // TestIntegrationLogsSearch tests `logs search` command.
 func TestIntegrationLogsSearch(t *testing.T) {
 	srv := newMockServer(t)
@@ -702,6 +757,15 @@ func TestIntegrationLogsSearch(t *testing.T) {
 		[]string{"logs", "search", "--query", "service:api", "--from", from, "--to", to})
 }
 
+// TestIntegrationLogsAggregate tests `logs aggregate` command.
+func TestIntegrationLogsAggregate(t *testing.T) {
+	srv := newMockServer(t)
+	from := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().UTC().Format(time.RFC3339)
+	testOutputFormats(t, "logs aggregate", srv.URL,
+		[]string{"logs", "aggregate", "--query", "service:api", "--group-by", "service", "--from", from, "--to", to})
+}
+
 // TestIntegrationTracesSearch tests `traces search` command.
 func TestIntegrationTracesSearch(t *testing.T) {
 	srv := newMockServer(t)
@@ -709,6 +773,22 @@ func TestIntegrationTracesSearch(t *testing.T) {
 	to := time.Now().UTC().Format(time.RFC3339)
 	testOutputFormats(t, "traces search", srv.URL,
 		[]string{"traces", "search", "--query", "service:api", "--from", from, "--to", to})
+}
+
+// TestIntegrationTracesAggregate tests `traces aggregate` command.
+func TestIntegrationTracesAggregate(t *testing.T) {
+	srv := newMockServer(t)
+	from := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().UTC().Format(time.RFC3339)
+	testOutputFormats(t, "traces aggregate", srv.URL,
+		[]string{"traces", "aggregate", "--query", "service:api", "--group-by", "service", "--from", from, "--to", to})
+}
+
+// TestIntegrationTracesGet tests `traces get` command.
+func TestIntegrationTracesGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "traces get", srv.URL,
+		[]string{"traces", "get", "span-abc123"})
 }
 
 // TestIntegrationHostsList tests `hosts list` command.
@@ -738,10 +818,29 @@ func TestIntegrationMetricsQuery(t *testing.T) {
 		[]string{"metrics", "query", "--query", "avg:system.cpu.user{*}", "--from", from, "--to", to})
 }
 
+// TestIntegrationMetricsSearch tests `metrics search` command.
+func TestIntegrationMetricsSearch(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "metrics search", srv.URL,
+		[]string{"metrics", "search", "--query", "system.cpu"})
+}
+
 // TestIntegrationMonitorsList tests `monitors list` command.
 func TestIntegrationMonitorsList(t *testing.T) {
 	srv := newMockServer(t)
 	testOutputFormats(t, "monitors list", srv.URL, []string{"monitors", "list"})
+}
+
+// TestIntegrationMonitorsGet tests `monitors get` command.
+func TestIntegrationMonitorsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "monitors get", srv.URL, []string{"monitors", "get", "99001"})
+}
+
+// TestIntegrationMonitorsSearch tests `monitors search` command.
+func TestIntegrationMonitorsSearch(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "monitors search", srv.URL, []string{"monitors", "search", "--query", "cpu"})
 }
 
 // TestIntegrationDashboardsList tests `dashboards list` command.
@@ -750,10 +849,30 @@ func TestIntegrationDashboardsList(t *testing.T) {
 	testOutputFormats(t, "dashboards list", srv.URL, []string{"dashboards", "list"})
 }
 
+// TestIntegrationDashboardsGet tests `dashboards get` command.
+func TestIntegrationDashboardsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "dashboards get", srv.URL,
+		[]string{"dashboards", "get", "abc-def-123"})
+}
+
+// TestIntegrationDashboardsSearch tests `dashboards search` command.
+func TestIntegrationDashboardsSearch(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "dashboards search", srv.URL,
+		[]string{"dashboards", "search", "--query", "Production"})
+}
+
 // TestIntegrationIncidentsList tests `incidents list` command.
 func TestIntegrationIncidentsList(t *testing.T) {
 	srv := newMockServer(t)
 	testOutputFormats(t, "incidents list", srv.URL, []string{"incidents", "list"})
+}
+
+// TestIntegrationIncidentsGet tests `incidents get` command.
+func TestIntegrationIncidentsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "incidents get", srv.URL, []string{"incidents", "get", "incident-uuid-0001"})
 }
 
 // TestIntegrationContainersList tests `containers list` command.
@@ -777,6 +896,15 @@ func TestIntegrationRumSearch(t *testing.T) {
 		[]string{"rum", "search", "--query", "@type:error", "--from", from, "--to", to})
 }
 
+// TestIntegrationRumAggregate tests `rum aggregate` command.
+func TestIntegrationRumAggregate(t *testing.T) {
+	srv := newMockServer(t)
+	from := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().UTC().Format(time.RFC3339)
+	testOutputFormats(t, "rum aggregate", srv.URL,
+		[]string{"rum", "aggregate", "--query", "@type:error", "--group-by", "@application.name", "--from", from, "--to", to})
+}
+
 // TestIntegrationAuditSearch tests `audit search` command.
 func TestIntegrationAuditSearch(t *testing.T) {
 	srv := newMockServer(t)
@@ -792,16 +920,112 @@ func TestIntegrationSLOsList(t *testing.T) {
 	testOutputFormats(t, "slos list", srv.URL, []string{"slos", "list"})
 }
 
+// TestIntegrationSLOsGet tests `slos get` command.
+func TestIntegrationSLOsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "slos get", srv.URL,
+		[]string{"slos", "get", "slo-abc123"})
+}
+
+// TestIntegrationSLOsHistory tests `slos history` command.
+func TestIntegrationSLOsHistory(t *testing.T) {
+	srv := newMockServer(t)
+	// The history endpoint returns data with overall.sli_history which may be
+	// empty in our mock, so just assert the command succeeds.
+	t.Run("table", func(t *testing.T) {
+		stdout, stderr, err := runCLI(t, srv.URL, "slos", "history", "slo-abc123")
+		assertSuccess(t, "slos history/table", stdout, stderr, err)
+		assertNonEmpty(t, "slos history/table stdout", stdout)
+	})
+	t.Run("json", func(t *testing.T) {
+		stdout, stderr, err := runCLI(t, srv.URL, "slos", "history", "slo-abc123", "--json")
+		assertSuccess(t, "slos history/json", stdout, stderr, err)
+		assertValidJSON(t, "slos history/json stdout", stdout)
+	})
+	t.Run("plaintext", func(t *testing.T) {
+		stdout, stderr, err := runCLI(t, srv.URL, "slos", "history", "slo-abc123", "--plaintext")
+		assertSuccess(t, "slos history/plaintext", stdout, stderr, err)
+		assertNonEmpty(t, "slos history/plaintext stdout", stdout)
+	})
+}
+
+// TestIntegrationDowntimesList tests `downtimes list` command.
+func TestIntegrationDowntimesList(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "downtimes list", srv.URL, []string{"downtimes", "list"})
+}
+
+// TestIntegrationDowntimesGet tests `downtimes get` command.
+func TestIntegrationDowntimesGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "downtimes get", srv.URL,
+		[]string{"downtimes", "get", "downtime-uuid-001"})
+}
+
+// TestIntegrationNotebooksList tests `notebooks list` command.
+func TestIntegrationNotebooksList(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "notebooks list", srv.URL, []string{"notebooks", "list"})
+}
+
+// TestIntegrationNotebooksGet tests `notebooks get` command.
+func TestIntegrationNotebooksGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "notebooks get", srv.URL,
+		[]string{"notebooks", "get", "11111"})
+}
+
+// TestIntegrationUsageSummary tests `usage summary` command.
+func TestIntegrationUsageSummary(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "usage summary", srv.URL,
+		[]string{"usage", "summary", "--start-month", "2024-01"})
+}
+
+// TestIntegrationUsageTopMetrics tests `usage top-metrics` command.
+func TestIntegrationUsageTopMetrics(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "usage top-metrics", srv.URL,
+		[]string{"usage", "top-metrics", "--month", "2024-01"})
+}
+
 // TestIntegrationUsersList tests `users list` command.
 func TestIntegrationUsersList(t *testing.T) {
 	srv := newMockServer(t)
 	testOutputFormats(t, "users list", srv.URL, []string{"users", "list"})
 }
 
+// TestIntegrationUsersGet tests `users get` command.
+func TestIntegrationUsersGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "users get", srv.URL,
+		[]string{"users", "get", "user-001"})
+}
+
+// TestIntegrationTagsList tests `tags list` command.
+func TestIntegrationTagsList(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "tags list", srv.URL, []string{"tags", "list"})
+}
+
+// TestIntegrationTagsGet tests `tags get` command.
+func TestIntegrationTagsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "tags get", srv.URL,
+		[]string{"tags", "get", "web-server-01"})
+}
+
 // TestIntegrationPipelinesList tests `pipelines list` command.
 func TestIntegrationPipelinesList(t *testing.T) {
 	srv := newMockServer(t)
 	testOutputFormats(t, "pipelines list", srv.URL, []string{"pipelines", "list"})
+}
+
+// TestIntegrationPipelinesGet tests `pipelines get` command.
+func TestIntegrationPipelinesGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "pipelines get", srv.URL,
+		[]string{"pipelines", "get", "pipeline-001"})
 }
 
 // TestIntegrationAPIKeysList tests `api-keys list` command.
@@ -816,26 +1040,34 @@ func TestIntegrationAPMServices(t *testing.T) {
 	testOutputFormats(t, "apm services", srv.URL, []string{"apm", "services"})
 }
 
-// TestIntegrationMonitorsGet tests `monitors get` command.
-func TestIntegrationMonitorsGet(t *testing.T) {
+// TestIntegrationAPMDefinitions tests `apm definitions` command.
+func TestIntegrationAPMDefinitions(t *testing.T) {
 	srv := newMockServer(t)
-	testOutputFormats(t, "monitors get", srv.URL, []string{"monitors", "get", "99001"})
+	testOutputFormats(t, "apm definitions", srv.URL, []string{"apm", "definitions"})
 }
 
-// TestIntegrationIncidentsGet tests `incidents get` command.
-func TestIntegrationIncidentsGet(t *testing.T) {
+// TestIntegrationAPMDependencies tests `apm dependencies` command.
+func TestIntegrationAPMDependencies(t *testing.T) {
 	srv := newMockServer(t)
-	testOutputFormats(t, "incidents get", srv.URL, []string{"incidents", "get", "incident-uuid-0001"})
+	testOutputFormats(t, "apm dependencies", srv.URL,
+		[]string{"apm", "dependencies", "--env", "production"})
+}
+
+// TestIntegrationEventsList tests `events list` command.
+func TestIntegrationEventsList(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "events list", srv.URL, []string{"events", "list"})
+}
+
+// TestIntegrationEventsGet tests `events get` command.
+func TestIntegrationEventsGet(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "events get", srv.URL,
+		[]string{"events", "get", "12345"})
 }
 
 // TestIntegrationLogsIndexes tests `logs indexes` command.
 func TestIntegrationLogsIndexes(t *testing.T) {
 	srv := newMockServer(t)
 	testOutputFormats(t, "logs indexes", srv.URL, []string{"logs", "indexes"})
-}
-
-// TestIntegrationMonitorsSearch tests `monitors search` command.
-func TestIntegrationMonitorsSearch(t *testing.T) {
-	srv := newMockServer(t)
-	testOutputFormats(t, "monitors search", srv.URL, []string{"monitors", "search", "--query", "cpu"})
 }
