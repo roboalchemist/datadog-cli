@@ -1,0 +1,51 @@
+name: Bump Homebrew Formula
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get tag version
+        id: tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Compute SHA256
+        id: sha
+        run: |
+          ARCHIVE_URL="https://github.com/roboalchemist/datadog-cli/archive/refs/tags/${GITHUB_REF#refs/tags/}.tar.gz"
+          SHA=$(curl -sL "$ARCHIVE_URL" | sha256sum | cut -d' ' -f1)
+          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+      - name: Update formula
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          # Clone the tap
+          git clone https://github.com/roboalchemist/homebrew-private.git tap
+          cd tap
+          # Update the formula
+          cat > Formula/datadog-cli.rb << 'FORMULA'
+          class DatadogCli < Formula
+            desc "Read-only CLI for querying Datadog APIs"
+            homepage "https://github.com/roboalchemist/datadog-cli"
+            url "https://github.com/roboalchemist/datadog-cli/archive/refs/tags/v${{ steps.tag.outputs.VERSION }}.tar.gz"
+            sha256 "${{ steps.sha.outputs.SHA256 }}"
+            license "MIT"
+            depends_on "go" => :build
+            def install
+              ldflags = "-s -w -X main.version=#{version}"
+              system "go", "build", *std_go_args(ldflags:)
+            end
+            test do
+              assert_match "datadog-cli version", shell_output("#{bin}/datadog-cli --version")
+            end
+          end
+          FORMULA
+          # Push
+          git config user.name "Gitea CI"
+          git config user.email "ci@github.com"
+          git add Formula/datadog-cli.rb
+          git commit -m "datadog-cli: bump to ${{ steps.tag.outputs.VERSION }}"
+          git push https://ci:${TAP_TOKEN}@github.com/roboalchemist/homebrew-private.git main
