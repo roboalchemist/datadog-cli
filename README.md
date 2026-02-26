@@ -179,6 +179,8 @@ datadog-cli audit search -q "action:deleted @asset.type:dashboard" --from 24h
 | `--json` | `-j` | false | JSON output |
 | `--plaintext` | `-p` | false | Plain text (no color, no borders) |
 | `--no-color` | | false | Disable color only |
+| `--quiet` | `-q` | false | Suppress progress output |
+| `--silent` | | false | Suppress progress output (synonym for --quiet) |
 | `--limit` | `-l` | 100 | Max results |
 | `--fields` | | | Comma-separated column filter |
 | `--jq` | | | JQ expression for JSON output |
@@ -188,6 +190,21 @@ datadog-cli audit search -q "action:deleted @asset.type:dashboard" --from 24h
 | `--app-key` | | | App key (overrides env/config) |
 | `--debug` | | false | Debug logging |
 | `--verbose` | `-v` | false | Verbose output |
+| `--version` | `-V` | | Print version and exit |
+
+## Exit Status
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | User/authentication error |
+| `2` | Usage error (invalid flags or arguments) |
+| `3` | System/network/server error |
+
+When `--json` is active, errors are emitted to stderr as structured JSON:
+```json
+{"error": "Unauthorized (401)", "code": "auth_error", "recoverable": false}
+```
 
 ## Shell Completion
 

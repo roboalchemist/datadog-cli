@@ -128,6 +128,8 @@ datadog-cli auth scopes --json
 | `--json` | `-j` | false | JSON output |
 | `--plaintext` | `-p` | false | Plain text (no color/borders) |
 | `--no-color` | | false | Disable color output |
+| `--quiet` | `-q` | false | Suppress progress output |
+| `--silent` | | false | Suppress progress output (synonym for --quiet) |
 | `--limit` | `-l` | 100 | Max results |
 | `--fields` | | | Comma-separated column filter |
 | `--jq` | | | JQ expression for JSON output |
@@ -137,6 +139,21 @@ datadog-cli auth scopes --json
 | `--app-key` | | | Datadog App key |
 | `--debug` | | false | Debug logging |
 | `--verbose` | `-v` | false | Verbose output |
+| `--version` | `-V` | | Print version and exit |
+
+## Exit Status
+
+```
+0   Success
+1   User/authentication error
+2   Usage error (invalid flags or arguments)
+3   System/network/server error
+```
+
+When `--json` is active, errors are written to stderr as structured JSON:
+```json
+{"error": "Unauthorized (401)", "code": "auth_error", "recoverable": false}
+```
 
 ## Command Groups
 
