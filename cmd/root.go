@@ -107,7 +107,7 @@ func Execute() {
 	}
 
 	if err := rootCmd.Execute(); err != nil {
-		output.PrintError(err)
+		output.PrintErrorWithOpts(err, GetOutputOptions())
 		os.Exit(exitCodeForError(err))
 	}
 }
