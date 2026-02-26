@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -79,7 +80,9 @@ Files:
 
 Exit Status:
   0   Success
-  1   Error (authentication, API, or usage error)
+  1   User/authentication error
+  2   Usage error (invalid flags or arguments)
+  3   System/network/server error
 
 Report bugs to: https://gitea.roboalch.com/roboalchemist/datadog-cli/issues
 Home page: https://gitea.roboalch.com/roboalchemist/datadog-cli`,
@@ -90,10 +93,43 @@ Home page: https://gitea.roboalch.com/roboalchemist/datadog-cli`,
 // Execute runs the root command.
 func Execute() {
 	rootCmd.Version = version
-	rootCmd.SetVersionTemplate(fmt.Sprintf("{{.Name}} {{.Version}}\nCopyright © 2026 roboalchemist\nLicense MIT: <https://opensource.org/licenses/MIT>\n"))
+	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\nCopyright © 2026 roboalchemist\nLicense MIT: <https://opensource.org/licenses/MIT>\n")
+
+	// Handle -V (GNU standard short flag for --version)
+	for _, arg := range os.Args[1:] {
+		if arg == "-V" {
+			fmt.Printf("datadog-cli %s\nCopyright © 2026 roboalchemist\nLicense MIT: <https://opensource.org/licenses/MIT>\n", version)
+			return
+		}
+		if arg == "--" {
+			break
+		}
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		output.PrintError(err)
-		os.Exit(1)
+		os.Exit(exitCodeForError(err))
+	}
+}
+
+// exitCodeForError returns differentiated exit codes based on error type.
+// 1 = user/auth error, 2 = usage error, 3 = system/network/server error.
+func exitCodeForError(err error) int {
+	var authErr *api.AuthenticationError
+	var badReqErr *api.BadRequestError
+	var notFoundErr *api.NotFoundError
+	var rateLimitErr *api.RateLimitError
+	var serverErr *api.ServerError
+	var networkErr *api.NetworkError
+
+	switch {
+	case errors.As(err, &serverErr), errors.As(err, &networkErr):
+		return 3
+	case errors.As(err, &authErr), errors.As(err, &badReqErr),
+		errors.As(err, &notFoundErr), errors.As(err, &rateLimitErr):
+		return 1
+	default:
+		return 1
 	}
 }
 
