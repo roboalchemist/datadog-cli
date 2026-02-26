@@ -339,6 +339,78 @@ type TagHostResponse struct {
 	Tags []string `json:"tags"`
 }
 
+// ---- Monitors API types ----
+
+// MonitorCreator holds creator info for a monitor.
+type MonitorCreator struct {
+	Email  string `json:"email"`
+	Handle string `json:"handle"`
+	Name   string `json:"name"`
+}
+
+// MonitorThresholds holds threshold values for a monitor.
+type MonitorThresholds struct {
+	Critical float64 `json:"critical"`
+	Warning  float64 `json:"warning"`
+}
+
+// MonitorOptions holds options for a monitor.
+type MonitorOptions struct {
+	Thresholds   MonitorThresholds `json:"thresholds"`
+	NotifyNoData bool              `json:"notify_no_data"`
+}
+
+// Monitor is a single monitor entry returned by GET /api/v1/monitor.
+type Monitor struct {
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	Query        string         `json:"query"`
+	Message      string         `json:"message"`
+	OverallState string         `json:"overall_state"`
+	Priority     int            `json:"priority"`
+	Tags         []string       `json:"tags"`
+	Created      string         `json:"created"`
+	Modified     string         `json:"modified"`
+	Creator      MonitorCreator `json:"creator"`
+	Options      MonitorOptions `json:"options"`
+}
+
+// MonitorSearchResponse is the response from GET /api/v1/monitor/search.
+type MonitorSearchResponse struct {
+	Monitors []Monitor        `json:"monitors"`
+	Metadata MonitorSearchMeta `json:"metadata"`
+}
+
+// MonitorSearchMeta contains pagination metadata for monitor search.
+type MonitorSearchMeta struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	PageCount int `json:"page_count"`
+	TotalCount int `json:"total_count"`
+}
+
+// ---- Dashboards API types ----
+
+// Dashboard is a single dashboard entry returned by GET /api/v1/dashboard.
+type Dashboard struct {
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Description      string `json:"description"`
+	AuthorHandle     string `json:"author_handle"`
+	URL              string `json:"url"`
+	CreatedAt        string `json:"created_at"`
+	ModifiedAt       string `json:"modified_at"`
+	LayoutType       string `json:"layout_type"`
+	IsReadOnly       bool   `json:"is_read_only"`
+	WidgetCount      int    `json:"-"`
+}
+
+// DashboardListResponse is the response from GET /api/v1/dashboard.
+type DashboardListResponse struct {
+	Dashboards []Dashboard `json:"dashboards"`
+}
+
 // ---- Metrics API types ----
 
 // MetricsListResponse is the response envelope for GET /api/v1/metrics.
