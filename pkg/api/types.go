@@ -466,3 +466,163 @@ type MetricsSearchResults struct {
 	Metrics []string `json:"metrics"`
 	Hosts   []string `json:"hosts"`
 }
+
+// ---- SLOs API types ----
+
+// SLOThreshold holds target/warning values for an SLO.
+type SLOThreshold struct {
+	Target    float64 `json:"target"`
+	Warning   float64 `json:"warning"`
+	Timeframe string  `json:"timeframe"`
+}
+
+// SLOOverallStatus holds the current SLI value for an SLO.
+type SLOOverallStatus struct {
+	SLI                   float64 `json:"sli"`
+	ErrorBudgetRemaining  float64 `json:"error_budget_remaining"`
+	Timeframe             string  `json:"timeframe"`
+}
+
+// SLOCreator holds creator info for an SLO.
+type SLOCreator struct {
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
+// SLO is a single SLO entry returned by GET /api/v1/slo.
+type SLO struct {
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Type          string             `json:"type"`
+	Tags          []string           `json:"tags"`
+	Groups        []string           `json:"groups"`
+	Thresholds    []SLOThreshold     `json:"thresholds"`
+	OverallStatus []SLOOverallStatus `json:"overall_status"`
+	Creator       SLOCreator         `json:"creator"`
+	CreatedAt     int64              `json:"created_at"`
+	ModifiedAt    int64              `json:"modified_at"`
+}
+
+// SLOListResponse is the response envelope for GET /api/v1/slo.
+type SLOListResponse struct {
+	Data []SLO `json:"data"`
+}
+
+// SLOGetResponse is the response envelope for GET /api/v1/slo/{id}.
+type SLOGetResponse struct {
+	Data SLO `json:"data"`
+}
+
+// SLOHistoryResponse is the response envelope for GET /api/v1/slo/{id}/history.
+type SLOHistoryResponse struct {
+	Data map[string]interface{} `json:"data"`
+}
+
+// ---- Usage API types ----
+
+// UsageSummaryEntry holds per-month usage data returned by GET /api/v1/usage/summary.
+type UsageSummaryEntry struct {
+	Date                         string  `json:"date"`
+	InfraHostTop99P              float64 `json:"infra_host_top99p"`
+	ContainerCountSum            float64 `json:"container_count_sum"`
+	CustomTSSum                  float64 `json:"custom_ts_sum"`
+	LogsIndexedLogsUsageSum      float64 `json:"logs_indexed_logs_usage_sum"`
+	APMHostTop99PSum             float64 `json:"apm_host_top99p_sum"`
+	RUMTotalSessionCountSum      float64 `json:"rum_total_session_count_sum"`
+}
+
+// UsageSummaryResponse is the response envelope for GET /api/v1/usage/summary.
+type UsageSummaryResponse struct {
+	Usage []UsageSummaryEntry `json:"usage"`
+}
+
+// UsageTopMetric holds per-metric usage data returned by GET /api/v1/usage/top_avg_metrics.
+type UsageTopMetric struct {
+	MetricName      string  `json:"metric_name"`
+	AvgMetricHour   float64 `json:"avg_metric_hour"`
+	MaxMetricHour   float64 `json:"max_metric_hour"`
+	MetricCategory  string  `json:"metric_category"`
+}
+
+// UsageTopMetricsResponse is the response envelope for GET /api/v1/usage/top_avg_metrics.
+type UsageTopMetricsResponse struct {
+	Usage []UsageTopMetric `json:"usage"`
+}
+
+// ---- Users API types (v2) ----
+
+// UserAttributes holds the attributes of a v2 user.
+type UserAttributes struct {
+	Name           string `json:"name"`
+	Handle         string `json:"handle"`
+	Email          string `json:"email"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
+	Verified       bool   `json:"verified"`
+	Disabled       bool   `json:"disabled"`
+	ServiceAccount bool   `json:"service_account"`
+	Icon           string `json:"icon"`
+	CreatedAt      string `json:"created_at"`
+	ModifiedAt     string `json:"modified_at"`
+}
+
+// User is a single user entry returned by GET /api/v2/users.
+type User struct {
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Attributes UserAttributes         `json:"attributes"`
+	Relationships map[string]interface{} `json:"relationships"`
+}
+
+// UserListResponse is the response envelope for GET /api/v2/users.
+type UserListResponse struct {
+	Data []User                   `json:"data"`
+	Meta map[string]interface{}   `json:"meta"`
+}
+
+// UserGetResponse is the response envelope for GET /api/v2/users/{id}.
+type UserGetResponse struct {
+	Data User `json:"data"`
+}
+
+// ---- Log Pipelines API types ----
+
+// PipelineFilter holds the filter query for a log pipeline.
+type PipelineFilter struct {
+	Query string `json:"query"`
+}
+
+// LogPipeline is a single pipeline entry returned by GET /api/v1/logs/config/pipelines.
+type LogPipeline struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Type       string          `json:"type"`
+	IsEnabled  bool            `json:"is_enabled"`
+	IsReadOnly bool            `json:"is_read_only"`
+	Filter     PipelineFilter  `json:"filter"`
+	Processors []interface{}   `json:"processors"`
+}
+
+// ---- API Keys API types (v2) ----
+
+// APIKeyAttributes holds the attributes of a v2 API key.
+type APIKeyAttributes struct {
+	Name       string `json:"name"`
+	Last4      string `json:"last4"`
+	CreatedAt  string `json:"created_at"`
+	ModifiedAt string `json:"modified_at"`
+}
+
+// APIKey is a single API key entry returned by GET /api/v2/api_keys.
+type APIKey struct {
+	ID         string           `json:"id"`
+	Type       string           `json:"type"`
+	Attributes APIKeyAttributes `json:"attributes"`
+}
+
+// APIKeyListResponse is the response envelope for GET /api/v2/api_keys.
+type APIKeyListResponse struct {
+	Data []APIKey               `json:"data"`
+	Meta map[string]interface{} `json:"meta"`
+}
