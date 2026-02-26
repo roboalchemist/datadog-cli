@@ -256,7 +256,7 @@ func downtimesScope(attrs map[string]interface{}) string {
 			return strings.Join(parts, ", ")
 		}
 		if monID, ok := mi["monitor_id"]; ok && monID != nil {
-			return fmt.Sprintf("monitor:%v", monID)
+			return "monitor:" + formatID(monID)
 		}
 	}
 	// Fallback: try scope array (v1-style)

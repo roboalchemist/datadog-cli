@@ -230,8 +230,9 @@ func (c *DatadogClient) mapStatusError(statusCode int, body []byte, headers http
 
 	case statusCode == 401:
 		return &AuthenticationError{
-			Message: "Authentication failed: Invalid API key.\n\n" +
-				"Ensure your DD_API_KEY is correct and has not expired.\n" +
+			Message: "Authentication failed: Unauthorized (401).\n\n" +
+				"Your credentials may be invalid, expired, or lack access to this endpoint.\n" +
+				"Ensure your DD_API_KEY and DD_APP_KEY are correct and have the required permissions.\n" +
 				"See: https://docs.datadoghq.com/account_management/api-app-keys/",
 		}
 
