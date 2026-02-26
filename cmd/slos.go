@@ -19,12 +19,15 @@ import (
 var slosCmd = &cobra.Command{
 	Use:   "slos",
 	Short: "Query SLOs (Service Level Objectives) from Datadog",
-	Long: `Query SLOs (Service Level Objectives) from Datadog.
+	Long:  `Query SLOs (Service Level Objectives) from Datadog.`,
+	Example: `  # List all SLOs
+  datadog-cli slos list
 
-Subcommands:
-  list     List SLOs
-  get      Get SLO details by ID
-  history  Get SLO history`,
+  # Get details for a specific SLO
+  datadog-cli slos get abc123def456
+
+  # Get SLO history for the last 30 days
+  datadog-cli slos history abc123def456 --from 30d`,
 }
 
 // ---- slos list ----
@@ -39,13 +42,15 @@ var slosListCmd = &cobra.Command{
 	Short: "List SLOs",
 	Long: `List SLOs from Datadog.
 
-Uses GET /api/v1/slo.
-
-Examples:
+Uses GET /api/v1/slo.`,
+	Example: `  # List all SLOs
   datadog-cli slos list
+
+  # Filter SLOs by tag
   datadog-cli slos list --tags-query "env:production"
-  datadog-cli slos list --ids "abc123,def456"
-  datadog-cli slos list --json`,
+
+  # List specific SLOs by ID as JSON
+  datadog-cli slos list --ids "abc123,def456" --json`,
 	RunE: runSLOsList,
 }
 
@@ -129,10 +134,11 @@ var slosGetCmd = &cobra.Command{
 	Short: "Get SLO details by ID",
 	Long: `Get detailed information about a specific SLO.
 
-Uses GET /api/v1/slo/{id}.
-
-Examples:
+Uses GET /api/v1/slo/{id}.`,
+	Example: `  # Get details for a specific SLO
   datadog-cli slos get abc123def456
+
+  # Get SLO details in JSON format
   datadog-cli slos get abc123def456 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSLOsGet,
@@ -247,13 +253,15 @@ var slosHistoryCmd = &cobra.Command{
 	Short: "Get SLO history",
 	Long: `Get historical SLI values for an SLO over a time range.
 
-Uses GET /api/v1/slo/{id}/history with from_ts and to_ts in seconds.
-
-Examples:
+Uses GET /api/v1/slo/{id}/history with from_ts and to_ts in seconds.`,
+	Example: `  # Get default (7 day) SLO history
   datadog-cli slos history abc123def456
-  datadog-cli slos history abc123def456 --from 7d
-  datadog-cli slos history abc123def456 --from 30d --to 7d
-  datadog-cli slos history abc123def456 --json`,
+
+  # Get 30 days of SLO history
+  datadog-cli slos history abc123def456 --from 30d
+
+  # Get SLO history in JSON format
+  datadog-cli slos history abc123def456 --from 7d --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSLOsHistory,
 }

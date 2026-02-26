@@ -16,11 +16,12 @@ import (
 var pipelinesCmd = &cobra.Command{
 	Use:   "pipelines",
 	Short: "Query log pipeline configurations from Datadog",
-	Long: `Query log pipeline configurations from Datadog.
+	Long:  `Query log pipeline configurations from Datadog.`,
+	Example: `  # List all log pipelines
+  datadog-cli pipelines list
 
-Subcommands:
-  list  List log pipelines
-  get   Get pipeline details by ID`,
+  # Get details for a specific pipeline
+  datadog-cli pipelines get abc123-def456`,
 }
 
 // ---- pipelines list ----
@@ -31,10 +32,11 @@ var pipelinesListCmd = &cobra.Command{
 	Long: `List log pipelines configured in your Datadog account.
 
 Uses GET /api/v1/logs/config/pipelines.
-Required scope: logs_read_config
-
-Examples:
+Required scope: logs_read_config`,
+	Example: `  # List all log pipelines
   datadog-cli pipelines list
+
+  # List pipelines in JSON format
   datadog-cli pipelines list --json`,
 	RunE: runPipelinesList,
 }
@@ -121,10 +123,11 @@ var pipelinesGetCmd = &cobra.Command{
 	Long: `Get detailed information about a specific log pipeline.
 
 Uses GET /api/v1/logs/config/pipelines/{id}.
-Required scope: logs_read_config
-
-Examples:
+Required scope: logs_read_config`,
+	Example: `  # Get details for a specific pipeline
   datadog-cli pipelines get abc123-def456
+
+  # Get pipeline details in JSON format
   datadog-cli pipelines get abc123-def456 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runPipelinesGet,

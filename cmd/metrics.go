@@ -18,12 +18,15 @@ import (
 var metricsCmd = &cobra.Command{
 	Use:   "metrics",
 	Short: "Query and list metrics from Datadog",
-	Long: `Query and list metrics from Datadog.
+	Long:  `Query and list metrics from Datadog.`,
+	Example: `  # List active metrics from the last hour
+  datadog-cli metrics list --from 1h
 
-Subcommands:
-  list    List available metric names
-  query   Query metric timeseries data
-  search  Search for metrics by name pattern`,
+  # Query CPU usage timeseries
+  datadog-cli metrics query -q "avg:system.cpu.user{*}"
+
+  # Search for metrics matching a pattern
+  datadog-cli metrics search -q "system.cpu"`,
 }
 
 // parseTimeSeconds parses a time string and returns Unix seconds.
@@ -48,13 +51,15 @@ var metricsListCmd = &cobra.Command{
 Uses GET /api/v1/metrics.
 
 The --from flag limits results to metrics that have received data points
-within the specified time window. Time is specified in Unix seconds.
-
-Examples:
+within the specified time window. Time is specified in Unix seconds.`,
+	Example: `  # List all active metrics
   datadog-cli metrics list
+
+  # List metrics active in the last hour
   datadog-cli metrics list --from 1h
-  datadog-cli metrics list --from 2d
-  datadog-cli metrics list --json`,
+
+  # List metrics active in the last 2 days as JSON
+  datadog-cli metrics list --from 2d --json`,
 	RunE: runMetricsList,
 }
 
@@ -130,13 +135,15 @@ var metricsQueryCmd = &cobra.Command{
 
 Uses GET /api/v1/query.
 
-The query uses Datadog's metrics query syntax. Time is in Unix seconds.
-
-Examples:
+The query uses Datadog's metrics query syntax. Time is in Unix seconds.`,
+	Example: `  # Query average CPU usage across all hosts
   datadog-cli metrics query --query "avg:system.cpu.user{*}"
+
+  # Query HTTP request hits for the API service over 2 hours
   datadog-cli metrics query -q "sum:trace.http.request.hits{service:api}" --from 2h
-  datadog-cli metrics query -q "avg:system.mem.used{*}" --from 1d --to 1h
-  datadog-cli metrics query -q "avg:system.load.1{host:web-1} by {host}" --json`,
+
+  # Query memory usage per host as JSON
+  datadog-cli metrics query -q "avg:system.mem.used{*}" --from 1d --json`,
 	RunE: runMetricsQuery,
 }
 
@@ -259,14 +266,15 @@ Uses GET /api/v1/search.
 
 The query can be prefixed with "metrics:" to search metric names,
 or "hosts:" to search host names. If no prefix is provided, "metrics:"
-is prepended automatically.
-
-Examples:
+is prepended automatically.`,
+	Example: `  # Search for CPU-related metrics
   datadog-cli metrics search --query "system.cpu"
-  datadog-cli metrics search -q "hosts:myhost"
-  datadog-cli metrics search -q "metrics:aws.ec2"
-  datadog-cli metrics search -q "trace.http"
-  datadog-cli metrics search -q "system" --json`,
+
+  # Search for AWS EC2 metrics
+  datadog-cli metrics search -q "aws.ec2"
+
+  # Search for trace HTTP metrics as JSON
+  datadog-cli metrics search -q "trace.http" --json`,
 	RunE: runMetricsSearch,
 }
 

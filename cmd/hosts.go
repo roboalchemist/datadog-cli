@@ -17,11 +17,15 @@ import (
 var hostsCmd = &cobra.Command{
 	Use:   "hosts",
 	Short: "Query infrastructure hosts from Datadog",
-	Long: `Query infrastructure hosts from Datadog.
+	Long:  `Query infrastructure hosts from Datadog.`,
+	Example: `  # List all hosts
+  datadog-cli hosts list
 
-Subcommands:
-  list    List infrastructure hosts
-  totals  Show total and active host counts`,
+  # Filter hosts by environment tag
+  datadog-cli hosts list --filter "env:production"
+
+  # Show total host counts
+  datadog-cli hosts totals`,
 }
 
 // ---- hosts list ----
@@ -39,14 +43,15 @@ var hostsListCmd = &cobra.Command{
 	Short: "List infrastructure hosts",
 	Long: `List infrastructure hosts from Datadog.
 
-Uses GET /api/v1/hosts.
-
-Examples:
+Uses GET /api/v1/hosts.`,
+	Example: `  # List all hosts
   datadog-cli hosts list
+
+  # Filter hosts by environment tag
   datadog-cli hosts list --filter "env:production"
-  datadog-cli hosts list --sort-field cpu --sort-dir desc
-  datadog-cli hosts list --count 50 --start 0
-  datadog-cli hosts list --json`,
+
+  # Sort by CPU usage descending and output as JSON
+  datadog-cli hosts list --sort-field cpu --sort-dir desc --json`,
 	RunE: runHostsList,
 }
 
@@ -207,10 +212,11 @@ var hostsTotalsCmd = &cobra.Command{
 	Short: "Show total and active host counts",
 	Long: `Show total and active host counts from Datadog.
 
-Uses GET /api/v1/hosts/totals.
-
-Examples:
+Uses GET /api/v1/hosts/totals.`,
+	Example: `  # Show host totals
   datadog-cli hosts totals
+
+  # Show host totals in JSON format
   datadog-cli hosts totals --json`,
 	RunE: runHostsTotals,
 }

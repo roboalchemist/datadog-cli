@@ -26,10 +26,12 @@ Audit logs record actions taken within your Datadog organization such as:
   - Permission and role changes
   - Integration configuration
 
-Required scope: audit_logs_read
+Required scope: audit_logs_read`,
+	Example: `  # Search all audit events from the last hour
+  datadog-cli audit search -q "*" --from 1h
 
-Subcommands:
-  search  Search audit log events`,
+  # Search for actions by a specific user
+  datadog-cli audit search -q "@usr.email:admin@example.com"`,
 }
 
 // ---- audit search ----
@@ -46,14 +48,15 @@ var auditSearchCmd = &cobra.Command{
 	Short: "Search Datadog Audit Logs",
 	Long: `Search Datadog Audit Logs using query syntax.
 
-Uses POST /api/v2/audit/events/search. Timestamps are in milliseconds.
+Uses POST /api/v2/audit/events/search. Timestamps are in milliseconds.`,
+	Example: `  # Search all audit events from the last hour
+  datadog-cli audit search --query "*" --from 1h
 
-Examples:
-  datadog-cli audit search --query "*"
+  # Search for actions by a specific user
   datadog-cli audit search -q "@usr.email:admin@example.com"
-  datadog-cli audit search -q "@evt.name:created" --from 1d
-  datadog-cli audit search -q "dashboard" --from 1h --to now
-  datadog-cli audit search -q "*" --from 2024-01-15T00:00:00Z --limit 50`,
+
+  # Search for dashboard-related events as JSON
+  datadog-cli audit search -q "dashboard" --from 1d --json`,
 	RunE: runAuditSearch,
 }
 
