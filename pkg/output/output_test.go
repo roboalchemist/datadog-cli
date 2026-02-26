@@ -2,12 +2,15 @@ package output
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/fatih/color"
+
+	"github.com/roboalchemist/datadog-cli/pkg/api"
 )
 
 // captureStdout redirects os.Stdout to a buffer for the duration of fn.
@@ -653,4 +656,267 @@ func TestPrintErrorf_WithColor(t *testing.T) {
 	color.NoColor = false
 
 	PrintErrorf("formatted error %s", "colored")
+}
+
+// --- captureStderr helper ---
+
+// captureStderr redirects os.Stderr to a buffer for the duration of fn.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStderr := os.Stderr
+	os.Stderr = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stderr = origStderr
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("ReadFrom pipe: %v", err)
+	}
+	return buf.String()
+}
+
+// --- cliErrorFromErr ---
+
+func TestCLIErrorFromErr_AuthenticationError(t *testing.T) {
+	err := &api.AuthenticationError{Message: "invalid credentials"}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "auth_error" {
+		t.Errorf("expected code auth_error, got %q", ce.Code)
+	}
+	if ce.Recoverable {
+		t.Error("AuthenticationError should not be recoverable")
+	}
+	if ce.Suggestion == "" {
+		t.Error("AuthenticationError should have a suggestion")
+	}
+	if ce.Message != "invalid credentials" {
+		t.Errorf("expected message 'invalid credentials', got %q", ce.Message)
+	}
+}
+
+func TestCLIErrorFromErr_RateLimitError(t *testing.T) {
+	err := &api.RateLimitError{Message: "too many requests"}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "rate_limit" {
+		t.Errorf("expected code rate_limit, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("RateLimitError should be recoverable")
+	}
+	if ce.Suggestion == "" {
+		t.Error("RateLimitError should have a suggestion")
+	}
+}
+
+func TestCLIErrorFromErr_NotFoundError(t *testing.T) {
+	err := &api.NotFoundError{Message: "resource not found"}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "not_found" {
+		t.Errorf("expected code not_found, got %q", ce.Code)
+	}
+	if ce.Recoverable {
+		t.Error("NotFoundError should not be recoverable")
+	}
+}
+
+func TestCLIErrorFromErr_BadRequestError(t *testing.T) {
+	err := &api.BadRequestError{Message: "invalid query"}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "bad_request" {
+		t.Errorf("expected code bad_request, got %q", ce.Code)
+	}
+	if ce.Recoverable {
+		t.Error("BadRequestError should not be recoverable")
+	}
+}
+
+func TestCLIErrorFromErr_ServerError(t *testing.T) {
+	err := &api.ServerError{Message: "internal server error"}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "server_error" {
+		t.Errorf("expected code server_error, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("ServerError should be recoverable")
+	}
+	if ce.Suggestion == "" {
+		t.Error("ServerError should have a suggestion")
+	}
+}
+
+func TestCLIErrorFromErr_NetworkError(t *testing.T) {
+	err := &api.NetworkError{Cause: errors.New("connection refused")}
+	ce := cliErrorFromErr(err)
+	if ce.Code != "network_error" {
+		t.Errorf("expected code network_error, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("NetworkError should be recoverable")
+	}
+	if ce.Suggestion == "" {
+		t.Error("NetworkError should have a suggestion")
+	}
+}
+
+func TestCLIErrorFromErr_DefaultError(t *testing.T) {
+	err := errors.New("some unknown error")
+	ce := cliErrorFromErr(err)
+	if ce.Code != "error" {
+		t.Errorf("expected code error, got %q", ce.Code)
+	}
+	if ce.Recoverable {
+		t.Error("default error should not be recoverable")
+	}
+	if ce.Message != "some unknown error" {
+		t.Errorf("expected message 'some unknown error', got %q", ce.Message)
+	}
+}
+
+// --- PrintErrorWithOpts ---
+
+func TestPrintErrorWithOpts_Nil(t *testing.T) {
+	// Should not panic on nil
+	PrintErrorWithOpts(nil, Options{JSON: true})
+}
+
+func TestPrintErrorWithOpts_JSONMode_EmitsStructuredJSON(t *testing.T) {
+	err := &api.AuthenticationError{Message: "Authentication failed"}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "auth_error" {
+		t.Errorf("expected code auth_error, got %q", ce.Code)
+	}
+	if ce.Message != "Authentication failed" {
+		t.Errorf("expected message 'Authentication failed', got %q", ce.Message)
+	}
+	if ce.Recoverable {
+		t.Error("expected recoverable=false for auth error")
+	}
+}
+
+func TestPrintErrorWithOpts_JSONMode_RateLimitRecoverable(t *testing.T) {
+	err := &api.RateLimitError{Message: "rate limit exceeded"}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "rate_limit" {
+		t.Errorf("expected code rate_limit, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("expected recoverable=true for rate limit error")
+	}
+}
+
+func TestPrintErrorWithOpts_JSONMode_SuggestionOmittedWhenEmpty(t *testing.T) {
+	err := &api.NotFoundError{Message: "resource not found"}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	// suggestion should be omitted (omitempty) for not_found
+	if strings.Contains(out, "suggestion") {
+		t.Errorf("suggestion should be omitted for not_found, got: %q", out)
+	}
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "not_found" {
+		t.Errorf("expected code not_found, got %q", ce.Code)
+	}
+}
+
+func TestPrintErrorWithOpts_PlainTextMode_NoJSON(t *testing.T) {
+	orig := color.NoColor
+	defer func() { color.NoColor = orig }()
+	color.NoColor = true
+
+	err := &api.AuthenticationError{Message: "auth failed"}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: false, NoColor: true})
+	})
+
+	// Should be plain text, not JSON
+	if strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Errorf("plain text mode should not emit JSON, got: %q", out)
+	}
+	if !strings.Contains(out, "auth failed") {
+		t.Errorf("expected error message in plain text output, got: %q", out)
+	}
+}
+
+func TestPrintErrorWithOpts_JSONMode_ServerErrorWithSuggestion(t *testing.T) {
+	err := &api.ServerError{Message: "500 Internal Server Error"}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "server_error" {
+		t.Errorf("expected code server_error, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("server_error should be recoverable")
+	}
+	if ce.Suggestion == "" {
+		t.Error("server_error should include a suggestion")
+	}
+}
+
+func TestPrintErrorWithOpts_JSONMode_NetworkError(t *testing.T) {
+	err := &api.NetworkError{Cause: errors.New("dial tcp: connection refused")}
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "network_error" {
+		t.Errorf("expected code network_error, got %q", ce.Code)
+	}
+	if !ce.Recoverable {
+		t.Error("network_error should be recoverable")
+	}
+}
+
+func TestPrintErrorWithOpts_JSONMode_DefaultError(t *testing.T) {
+	err := errors.New("something went wrong")
+	out := captureStderr(t, func() {
+		PrintErrorWithOpts(err, Options{JSON: true})
+	})
+
+	var ce CLIError
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &ce); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v — got: %q", jsonErr, out)
+	}
+	if ce.Code != "error" {
+		t.Errorf("expected code error, got %q", ce.Code)
+	}
+	if ce.Recoverable {
+		t.Error("default error should not be recoverable")
+	}
 }
