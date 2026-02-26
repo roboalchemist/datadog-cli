@@ -18,11 +18,12 @@ import (
 var tagsCmd = &cobra.Command{
 	Use:   "tags",
 	Short: "Query host tags from Datadog",
-	Long: `Query host tags from Datadog.
+	Long:  `Query host tags from Datadog.`,
+	Example: `  # List all host tags
+  datadog-cli tags list
 
-Subcommands:
-  list   List all host tags
-  get    Get tags for a specific host`,
+  # Get tags for a specific host
+  datadog-cli tags get myhost.example.com`,
 }
 
 // ---- tags list ----
@@ -36,11 +37,14 @@ var tagsListCmd = &cobra.Command{
 
 Returns a mapping of tags to the hosts that have each tag.
 
-Uses GET /api/v1/tags/hosts.
-
-Examples:
+Uses GET /api/v1/tags/hosts.`,
+	Example: `  # List all host tags
   datadog-cli tags list
+
+  # List tags from a specific source
   datadog-cli tags list --source users
+
+  # List tags in JSON format
   datadog-cli tags list --json`,
 	RunE: runTagsList,
 }
@@ -131,11 +135,14 @@ var tagsGetCmd = &cobra.Command{
 	Short: "Get tags for a specific host",
 	Long: `Get all tags for a specific host.
 
-Uses GET /api/v1/tags/hosts/{host_name}.
-
-Examples:
+Uses GET /api/v1/tags/hosts/{host_name}.`,
+	Example: `  # Get all tags for a host
   datadog-cli tags get myhost.example.com
+
+  # Get tags from a specific source
   datadog-cli tags get myhost.example.com --source users
+
+  # Get tags in JSON format
   datadog-cli tags get myhost.example.com --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTagsGet,

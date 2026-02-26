@@ -15,10 +15,12 @@ import (
 var authCmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Authentication utilities and information",
-	Long: `Authentication utilities and information.
+	Long:  `Authentication utilities and information.`,
+	Example: `  # Show all required API/App key scopes
+  datadog-cli auth scopes
 
-Subcommands:
-  scopes  Display required Datadog API/App key scopes`,
+  # Show required scopes in JSON format
+  datadog-cli auth scopes --json`,
 }
 
 // commandScopeEntry describes the scopes needed by one command group.
@@ -166,10 +168,11 @@ var authScopesCmd = &cobra.Command{
 	Long: `Display the Datadog Application Key scopes required by datadog-cli.
 
 No API call is made — this displays a static list of required permissions.
-Use this to create a minimally-scoped Application Key for datadog-cli.
-
-Examples:
+Use this to create a minimally-scoped Application Key for datadog-cli.`,
+	Example: `  # Show all required scopes in table format
   datadog-cli auth scopes
+
+  # Show required scopes in JSON format
   datadog-cli auth scopes --json`,
 	RunE: runAuthScopes,
 }

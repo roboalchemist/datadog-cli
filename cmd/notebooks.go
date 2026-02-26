@@ -18,11 +18,15 @@ import (
 var notebooksCmd = &cobra.Command{
 	Use:   "notebooks",
 	Short: "Query notebooks from Datadog",
-	Long: `Query notebooks from Datadog.
+	Long:  `Query notebooks from Datadog.`,
+	Example: `  # List all notebooks
+  datadog-cli notebooks list
 
-Subcommands:
-  list    List notebooks
-  get     Get notebook details by ID`,
+  # Get details for a specific notebook
+  datadog-cli notebooks get 123456
+
+  # List notebooks in JSON format
+  datadog-cli notebooks list --json`,
 }
 
 // ---- notebooks list ----
@@ -32,10 +36,11 @@ var notebooksListCmd = &cobra.Command{
 	Short: "List notebooks",
 	Long: `List all notebooks from Datadog.
 
-Uses GET /api/v1/notebooks.
-
-Examples:
+Uses GET /api/v1/notebooks.`,
+	Example: `  # List all notebooks
   datadog-cli notebooks list
+
+  # List notebooks in JSON format
   datadog-cli notebooks list --json`,
 	RunE: runNotebooksList,
 }
@@ -121,10 +126,11 @@ var notebooksGetCmd = &cobra.Command{
 	Short: "Get notebook details by ID",
 	Long: `Get detailed information about a specific notebook.
 
-Uses GET /api/v1/notebooks/{id}.
-
-Examples:
+Uses GET /api/v1/notebooks/{id}.`,
+	Example: `  # Get details for a specific notebook
   datadog-cli notebooks get 123456
+
+  # Get notebook details in JSON format
   datadog-cli notebooks get 123456 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runNotebooksGet,

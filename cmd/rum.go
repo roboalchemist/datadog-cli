@@ -21,11 +21,12 @@ var rumCmd = &cobra.Command{
 	Long: `Query RUM (Real User Monitoring) events from Datadog.
 
 RUM events include sessions, views, actions, errors, resources, and long tasks
-from frontend applications instrumented with Datadog RUM.
+from frontend applications instrumented with Datadog RUM.`,
+	Example: `  # Search for RUM errors in the last hour
+  datadog-cli rum search -q "@type:error" --from 1h
 
-Subcommands:
-  search     Search RUM events matching a query
-  aggregate  Aggregate RUM events by fields`,
+  # Aggregate RUM events by type
+  datadog-cli rum aggregate -q "*" --group-by @type --compute count`,
 }
 
 // ---- rum search ----
@@ -42,14 +43,15 @@ var rumSearchCmd = &cobra.Command{
 	Short: "Search RUM events matching a query",
 	Long: `Search RUM events using Datadog query syntax.
 
-Uses POST /api/v2/rum/events/search. Timestamps are in milliseconds.
-
-Examples:
+Uses POST /api/v2/rum/events/search. Timestamps are in milliseconds.`,
+	Example: `  # Search for errors in a frontend service
   datadog-cli rum search --query "service:my-frontend"
+
+  # Search for RUM errors in the last hour
   datadog-cli rum search -q "@type:error" --from 1h --to now
-  datadog-cli rum search -q "@view.name:checkout" --limit 50
-  datadog-cli rum search -q "@error.message:*403*" --from 1d
-  datadog-cli rum search -q "@application.name:my-app @type:action"`,
+
+  # Search for 403 errors from the last day as JSON
+  datadog-cli rum search -q "@error.message:*403*" --from 1d --json`,
 	RunE: runRumSearch,
 }
 
@@ -222,13 +224,15 @@ var rumAggregateCmd = &cobra.Command{
 	Short: "Aggregate RUM events by fields",
 	Long: `Aggregate RUM events using Datadog RUM Analytics.
 
-Uses POST /api/v2/rum/analytics/aggregate. Timestamps are in milliseconds.
-
-Examples:
+Uses POST /api/v2/rum/analytics/aggregate. Timestamps are in milliseconds.`,
+	Example: `  # Count RUM events grouped by type
   datadog-cli rum aggregate -q "*" --group-by @type --compute count
+
+  # Count errors by error source
   datadog-cli rum aggregate -q "@type:error" --group-by @error.source --compute count
-  datadog-cli rum aggregate -q "service:my-app" --group-by @view.name --compute count
-  datadog-cli rum aggregate -q "*" --from 1d --group-by @application.name`,
+
+  # Count events per view in an app from the last day
+  datadog-cli rum aggregate -q "service:my-app" --from 1d --group-by @view.name --compute count`,
 	RunE: runRumAggregate,
 }
 

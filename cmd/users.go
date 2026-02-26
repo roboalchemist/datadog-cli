@@ -17,11 +17,12 @@ import (
 var usersCmd = &cobra.Command{
 	Use:   "users",
 	Short: "Query users from Datadog",
-	Long: `Query users from Datadog.
+	Long:  `Query users from Datadog.`,
+	Example: `  # List all users in your organization
+  datadog-cli users list
 
-Subcommands:
-  list  List users
-  get   Get user details by ID`,
+  # Get details for a specific user
+  datadog-cli users get abc12345-1234-5678-abcd-1234567890ab`,
 }
 
 // ---- users list ----
@@ -31,10 +32,11 @@ var usersListCmd = &cobra.Command{
 	Short: "List users",
 	Long: `List users in your Datadog organization.
 
-Uses GET /api/v2/users.
-
-Examples:
+Uses GET /api/v2/users.`,
+	Example: `  # List all users
   datadog-cli users list
+
+  # List users in JSON format
   datadog-cli users list --json`,
 	RunE: runUsersList,
 }
@@ -113,10 +115,11 @@ var usersGetCmd = &cobra.Command{
 	Short: "Get user details by ID",
 	Long: `Get detailed information about a specific user.
 
-Uses GET /api/v2/users/{id}.
-
-Examples:
+Uses GET /api/v2/users/{id}.`,
+	Example: `  # Get details for a specific user
   datadog-cli users get abc12345-1234-5678-abcd-1234567890ab
+
+  # Get user details in JSON format
   datadog-cli users get abc12345-1234-5678-abcd-1234567890ab --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runUsersGet,

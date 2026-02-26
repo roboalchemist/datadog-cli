@@ -20,12 +20,15 @@ var tracesCmd = &cobra.Command{
 	Short: "Query APM traces and spans from Datadog",
 	Long: `Query APM traces and spans from Datadog.
 
-Note: The spans search and aggregate APIs are rate-limited to 300 requests/hour.
+Note: The spans search and aggregate APIs are rate-limited to 300 requests/hour.`,
+	Example: `  # Search traces for a service in the last hour
+  datadog-cli traces search -q "service:my-api" --from 1h
 
-Subcommands:
-  search     Search spans matching a query
-  aggregate  Aggregate spans by fields
-  get        Get a specific span by ID`,
+  # Aggregate spans by service with count
+  datadog-cli traces aggregate -q "env:production" --group-by service --compute count
+
+  # Get details for a specific span
+  datadog-cli traces get abc123def456`,
 }
 
 // ---- traces search ----
@@ -44,14 +47,15 @@ var tracesSearchCmd = &cobra.Command{
 	Long: `Search APM spans using Datadog query syntax.
 
 Uses POST /api/v2/spans/events/search.
-Rate limit: 300 requests/hour.
-
-Examples:
+Rate limit: 300 requests/hour.`,
+	Example: `  # Search spans for a specific service
   datadog-cli traces search --query "service:my-app"
+
+  # Search for slow spans (duration > 1s) in the last hour
   datadog-cli traces search -q "service:api @duration:>1s" --from 1h
-  datadog-cli traces search -q "service:api env:production" --from 2h --to 1h
-  datadog-cli traces search -q "service:api" --sort -duration
-  datadog-cli traces search -q "*" --limit 50 --json`,
+
+  # Search and sort by duration descending, output as JSON
+  datadog-cli traces search -q "*" --sort -duration --limit 50 --json`,
 	RunE: runTracesSearch,
 }
 
@@ -259,12 +263,14 @@ var tracesAggregateCmd = &cobra.Command{
 	Long: `Aggregate APM spans using Datadog Analytics.
 
 Uses POST /api/v2/spans/analytics/aggregate.
-Rate limit: 300 requests/hour.
-
-Examples:
+Rate limit: 300 requests/hour.`,
+	Example: `  # Count spans by service
   datadog-cli traces aggregate -q "service:api" --group-by service --compute count
+
+  # Count spans by resource in production
   datadog-cli traces aggregate -q "env:production" --group-by resource_name
-  datadog-cli traces aggregate -q "service:api" --group-by service --compute avg --from 2h
+
+  # Aggregate spans from the last day as JSON
   datadog-cli traces aggregate -q "*" --from 1d --group-by service --json`,
 	RunE: runTracesAggregate,
 }
@@ -398,10 +404,11 @@ var tracesGetCmd = &cobra.Command{
 	Short: "Get a specific span by ID",
 	Long: `Retrieve detailed information about a specific span by its span ID.
 
-Uses GET /api/v2/spans/events/{span_id}.
-
-Examples:
+Uses GET /api/v2/spans/events/{span_id}.`,
+	Example: `  # Get details for a specific span
   datadog-cli traces get abc123def456
+
+  # Get span details in JSON format
   datadog-cli traces get abc123def456 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTracesGet,
