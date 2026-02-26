@@ -45,6 +45,7 @@ var (
 	flagNoColor   bool
 	flagDebug     bool
 	flagVerbose   bool
+	flagQuiet     bool
 	flagLimit     int
 	flagProfile   string
 	flagSite      string
@@ -64,7 +65,24 @@ Query logs, metrics, monitors, dashboards, hosts, APM traces, and more.
 Credentials are resolved from (in priority order):
   1. --api-key / --app-key flags
   2. DD_API_KEY / DD_APP_KEY environment variables
-  3. ~/.datadog-cli/config.yaml (profile-based)`,
+  3. ~/.datadog-cli/config.yaml (profile-based)
+
+Environment Variables:
+  DD_API_KEY        Datadog API key (required)
+  DD_APP_KEY        Datadog Application key (required)
+  DD_SITE           Datadog site (default: datadoghq.com)
+  DD_API_URL        Override API base URL
+  NO_COLOR          Disable colored output
+
+Files:
+  ~/.datadog-cli/config.yaml   Credentials and profile configuration (mode 0600)
+
+Exit Status:
+  0   Success
+  1   Error (authentication, API, or usage error)
+
+Report bugs to: https://github.com/roboalchemist/datadog-cli/issues
+Home page: https://github.com/roboalchemist/datadog-cli`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }
@@ -72,6 +90,7 @@ Credentials are resolved from (in priority order):
 // Execute runs the root command.
 func Execute() {
 	rootCmd.Version = version
+	rootCmd.SetVersionTemplate(fmt.Sprintf("{{.Name}} {{.Version}}\nCopyright © 2026 roboalchemist\nLicense MIT: <https://opensource.org/licenses/MIT>\n"))
 	if err := rootCmd.Execute(); err != nil {
 		output.PrintError(err)
 		os.Exit(1)
@@ -86,6 +105,8 @@ func init() {
 	pf.BoolVar(&flagNoColor, "no-color", false, "Disable color output")
 	pf.BoolVar(&flagDebug, "debug", false, "Enable debug logging")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
+	pf.BoolVarP(&flagQuiet, "quiet", "q", false, "Suppress progress output")
+	pf.BoolVar(&flagQuiet, "silent", false, "Suppress progress output (synonym for --quiet)")
 	pf.IntVarP(&flagLimit, "limit", "l", 100, "Maximum number of results to return")
 	pf.StringVar(&flagProfile, "profile", "", "Config profile name")
 	pf.StringVar(&flagSite, "site", "", "Datadog site (default: datadoghq.com)")
