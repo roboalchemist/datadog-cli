@@ -105,7 +105,7 @@ func runMonitorsList(cmd *cobra.Command, args []string) error {
 
 	for _, item := range raw {
 		m, _ := item.(map[string]interface{})
-		id := fmt.Sprintf("%v", m["id"])
+		id := formatID(m["id"])
 		name := output.TruncateString(monitorStringField(m, "name"), 45)
 		mtype := monitorStringField(m, "type")
 		status := monitorStringField(m, "overall_state")
@@ -174,7 +174,7 @@ func runMonitorsGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Extract fields for display
-	id := fmt.Sprintf("%v", raw["id"])
+	id := formatID(raw["id"])
 	name := monitorStringField(raw, "name")
 	mtype := monitorStringField(raw, "type")
 	status := monitorStringField(raw, "overall_state")
@@ -340,7 +340,7 @@ func runMonitorsSearch(cmd *cobra.Command, args []string) error {
 
 	for _, item := range monitorsRaw {
 		m, _ := item.(map[string]interface{})
-		id := fmt.Sprintf("%v", m["id"])
+		id := formatID(m["id"])
 		name := output.TruncateString(monitorStringField(m, "name"), 45)
 		mtype := monitorStringField(m, "type")
 		status := monitorStringField(m, "status")

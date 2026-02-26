@@ -84,11 +84,12 @@ func runDowntimesList(cmd *cobra.Command, args []string) error {
 		dt, _ := item.(map[string]interface{})
 		attrs, _ := dt["attributes"].(map[string]interface{})
 
-		id := fmt.Sprintf("%v", dt["id"])
+		id := formatID(dt["id"])
 		scope := downtimesScope(attrs)
 		message := output.TruncateString(downtimesStringField(attrs, "message"), 35)
-		start := downtimesFormatTimestamp(attrs["start"])
-		end := downtimesFormatTimestamp(attrs["end"])
+		schedule, _ := attrs["schedule"].(map[string]interface{})
+		start := downtimesFormatTimestamp(schedule["start"])
+		end := downtimesFormatTimestamp(schedule["end"])
 		active := downtimesActive(attrs)
 
 		rows = append(rows, downtimeRow{
@@ -156,11 +157,12 @@ func runDowntimesGet(cmd *cobra.Command, args []string) error {
 	}
 	attrs, _ := dt["attributes"].(map[string]interface{})
 
-	id := fmt.Sprintf("%v", dt["id"])
+	id := formatID(dt["id"])
 	scope := downtimesScope(attrs)
 	message := downtimesStringField(attrs, "message")
-	start := downtimesFormatTimestamp(attrs["start"])
-	end := downtimesFormatTimestamp(attrs["end"])
+	schedule, _ := attrs["schedule"].(map[string]interface{})
+	start := downtimesFormatTimestamp(schedule["start"])
+	end := downtimesFormatTimestamp(schedule["end"])
 	active := downtimesActive(attrs)
 	timezone := downtimesStringField(attrs, "timezone")
 	notifyEndStates := downtimesNotifyEndStates(attrs)
@@ -171,7 +173,7 @@ func runDowntimesGet(cmd *cobra.Command, args []string) error {
 	if creatorRel, ok := dt["relationships"].(map[string]interface{}); ok {
 		if createdBy, ok := creatorRel["created_by"].(map[string]interface{}); ok {
 			if createdByData, ok := createdBy["data"].(map[string]interface{}); ok {
-				creatorHandle = fmt.Sprintf("%v", createdByData["id"])
+				creatorHandle = formatID(createdByData["id"])
 			}
 		}
 	}

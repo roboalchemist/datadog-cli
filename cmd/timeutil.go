@@ -82,3 +82,17 @@ func parseTime(s string) (int64, error) {
 		s,
 	)
 }
+
+// formatID converts an interface{} ID value to a clean string.
+// Handles float64 (JSON default), string, and other types.
+// Avoids scientific notation for large numeric IDs.
+func formatID(v interface{}) string {
+	switch id := v.(type) {
+	case float64:
+		return strconv.FormatInt(int64(id), 10)
+	case string:
+		return id
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}

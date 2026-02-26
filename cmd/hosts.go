@@ -120,7 +120,7 @@ func runHostsList(cmd *cobra.Command, args []string) error {
 
 		// Up status
 		upStr := "unknown"
-		if isUp, ok := host["is_up"].(bool); ok {
+		if isUp, ok := host["up"].(bool); ok {
 			if isUp {
 				upStr = "UP"
 			} else {
