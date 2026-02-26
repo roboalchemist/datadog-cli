@@ -105,7 +105,7 @@ func init() {
 	pf.BoolVar(&flagNoColor, "no-color", false, "Disable color output")
 	pf.BoolVar(&flagDebug, "debug", false, "Enable debug logging")
 	pf.BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
-	pf.BoolVarP(&flagQuiet, "quiet", "q", false, "Suppress progress output")
+	pf.BoolVar(&flagQuiet, "quiet", false, "Suppress progress output")
 	pf.BoolVar(&flagQuiet, "silent", false, "Suppress progress output (synonym for --quiet)")
 	pf.IntVarP(&flagLimit, "limit", "l", 100, "Maximum number of results to return")
 	pf.StringVar(&flagProfile, "profile", "", "Config profile name")
