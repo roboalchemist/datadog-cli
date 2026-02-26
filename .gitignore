@@ -1,0 +1,27 @@
+# Binary
+datadog-cli
+datadog-cli.exe
+
+# Build artifacts
+dist/
+bin/
+out/
+
+# Go toolchain
+vendor/
+coverage.out
+coverage.html
+*.test
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated
+docs/
+man/
