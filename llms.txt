@@ -1,0 +1,38 @@
+# datadog-cli
+
+> Read-only CLI for querying Datadog APIs. Covers logs, traces, APM, metrics, hosts, monitors, dashboards, SLOs, incidents, RUM, audit, usage, and more.
+
+## Docs
+
+- [README](README.md): Installation, quick start, all command groups, output format examples, configuration, supported sites
+- [Skill](skill/SKILL.md): Claude Code skill with examples, auth setup, output flags, time formats, global flags reference
+- [Commands Reference](skill/reference/commands.md): Complete flag reference for every command and subcommand, required API scopes
+
+## API
+
+All commands are read-only (list/get/search/aggregate only). No write operations.
+
+Authentication via `DD_API_KEY` + `DD_APP_KEY` environment variables, `--api-key`/`--app-key` flags, or `~/.datadog-cli/config.yaml` (profile-based).
+
+Default site: `datadoghq.com`. Override with `DD_SITE` env var or `--site` flag.
+
+## Command Groups
+
+logs, traces, apm, metrics, monitors, hosts, containers, processes, dashboards, events, downtimes, incidents, notebooks, rum, slos, tags, audit, usage, users, pipelines, api-keys, auth
+
+## Key Flags
+
+- `--json` / `-j`: raw JSON output
+- `--plaintext` / `-p`: no color, no borders
+- `--limit` / `-l`: max results (default 100)
+- `--jq EXPR`: apply jq expression to JSON output
+- `--fields f1,f2`: show only named columns
+- `--from` / `--to`: time range (relative like `1h`, ISO-8601, or unix seconds)
+- `--profile`: named profile from config file
+
+## Skill Management
+
+```bash
+datadog-cli skill add    # install to ~/.claude/skills/datadog-cli/
+datadog-cli skill print  # print SKILL.md to stdout
+```
