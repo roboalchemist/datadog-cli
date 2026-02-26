@@ -27,9 +27,9 @@ type Options struct {
 
 // ColumnConfig defines display configuration for a single table column.
 type ColumnConfig struct {
-	Name      string             // column header label
-	Width     int                // max width (0 = auto)
-	Color     *color.Color       // optional color for the column values
+	Name      string              // column header label
+	Width     int                 // max width (0 = auto)
+	Color     *color.Color        // optional color for the column values
 	Formatter func(string) string // optional transform applied to each cell value
 }
 

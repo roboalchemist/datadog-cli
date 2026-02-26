@@ -117,8 +117,8 @@ type PaginationMeta struct {
 
 // LogEvent is a single log event returned by the logs search API (v2).
 type LogEvent struct {
-	ID         string            `json:"id"`
-	Type       string            `json:"type"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"`
 	Attributes LogEventAttributes `json:"attributes"`
 }
 
@@ -135,8 +135,8 @@ type LogEventAttributes struct {
 
 // LogSearchResponse is the response envelope for POST /api/v2/logs/events/search.
 type LogSearchResponse struct {
-	Data []LogEvent        `json:"data"`
-	Meta LogSearchMeta     `json:"meta"`
+	Data []LogEvent    `json:"data"`
+	Meta LogSearchMeta `json:"meta"`
 }
 
 // LogSearchMeta holds pagination metadata for log search responses.
@@ -168,11 +168,11 @@ type LogAggregateBucket struct {
 
 // LogIndex is a single log index entry returned by GET /api/v1/logs/indexes.
 type LogIndex struct {
-	Name             string        `json:"name"`
+	Name             string         `json:"name"`
 	Filter           LogIndexFilter `json:"filter"`
-	NumRetentionDays int           `json:"num_retention_days"`
-	DailyLimit       int           `json:"daily_limit"`
-	IsRateLimited    bool          `json:"is_rate_limited"`
+	NumRetentionDays int            `json:"num_retention_days"`
+	DailyLimit       int            `json:"daily_limit"`
+	IsRateLimited    bool           `json:"is_rate_limited"`
 }
 
 // LogIndexFilter holds the filter query for a log index.
@@ -197,14 +197,14 @@ type SpanEvent struct {
 // SpanAttributes holds the fields of a span event.
 type SpanAttributes struct {
 	// Top-level span fields
-	Service      string                 `json:"service"`
-	ResourceName string                 `json:"resource_name"`
-	Name         string                 `json:"name"`
-	TraceID      string                 `json:"trace_id"`
-	SpanID       string                 `json:"span_id"`
-	Duration     int64                  `json:"duration"`
-	Error        int                    `json:"error"`
-	Timestamp    string                 `json:"timestamp"`
+	Service      string `json:"service"`
+	ResourceName string `json:"resource_name"`
+	Name         string `json:"name"`
+	TraceID      string `json:"trace_id"`
+	SpanID       string `json:"span_id"`
+	Duration     int64  `json:"duration"`
+	Error        int    `json:"error"`
+	Timestamp    string `json:"timestamp"`
 	// Nested metadata
 	Meta    map[string]interface{} `json:"meta"`
 	Metrics map[string]interface{} `json:"metrics"`
@@ -253,15 +253,15 @@ type ServiceDefinitionResponse struct {
 
 // ServiceDefinitionItem is a single service definition entry.
 type ServiceDefinitionItem struct {
-	ID         string                        `json:"id"`
-	Type       string                        `json:"type"`
-	Attributes ServiceDefinitionAttributes   `json:"attributes"`
+	ID         string                      `json:"id"`
+	Type       string                      `json:"type"`
+	Attributes ServiceDefinitionAttributes `json:"attributes"`
 }
 
 // ServiceDefinitionAttributes holds the attributes of a service definition.
 type ServiceDefinitionAttributes struct {
-	Meta   ServiceDefinitionMeta          `json:"meta"`
-	Schema map[string]interface{}         `json:"schema"`
+	Meta   ServiceDefinitionMeta  `json:"meta"`
+	Schema map[string]interface{} `json:"schema"`
 }
 
 // ServiceDefinitionMeta contains metadata for a service definition (schema version, etc.).
@@ -378,15 +378,15 @@ type Monitor struct {
 
 // MonitorSearchResponse is the response from GET /api/v1/monitor/search.
 type MonitorSearchResponse struct {
-	Monitors []Monitor        `json:"monitors"`
+	Monitors []Monitor         `json:"monitors"`
 	Metadata MonitorSearchMeta `json:"metadata"`
 }
 
 // MonitorSearchMeta contains pagination metadata for monitor search.
 type MonitorSearchMeta struct {
-	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
-	PageCount int `json:"page_count"`
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
+	PageCount  int `json:"page_count"`
 	TotalCount int `json:"total_count"`
 }
 
@@ -394,16 +394,16 @@ type MonitorSearchMeta struct {
 
 // Dashboard is a single dashboard entry returned by GET /api/v1/dashboard.
 type Dashboard struct {
-	ID               string `json:"id"`
-	Title            string `json:"title"`
-	Description      string `json:"description"`
-	AuthorHandle     string `json:"author_handle"`
-	URL              string `json:"url"`
-	CreatedAt        string `json:"created_at"`
-	ModifiedAt       string `json:"modified_at"`
-	LayoutType       string `json:"layout_type"`
-	IsReadOnly       bool   `json:"is_read_only"`
-	WidgetCount      int    `json:"-"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	AuthorHandle string `json:"author_handle"`
+	URL          string `json:"url"`
+	CreatedAt    string `json:"created_at"`
+	ModifiedAt   string `json:"modified_at"`
+	LayoutType   string `json:"layout_type"`
+	IsReadOnly   bool   `json:"is_read_only"`
+	WidgetCount  int    `json:"-"`
 }
 
 // DashboardListResponse is the response from GET /api/v1/dashboard.
@@ -421,14 +421,14 @@ type MetricsListResponse struct {
 
 // MetricsQueryResponse is the response envelope for GET /api/v1/query.
 type MetricsQueryResponse struct {
-	Status    string         `json:"status"`
-	Series    []MetricSeries `json:"series"`
-	FromDate  int64          `json:"from_date"`
-	ToDate    int64          `json:"to_date"`
-	Query     string         `json:"query"`
-	Message   string         `json:"message"`
-	GroupBy   []string       `json:"group_by"`
-	ResType   string         `json:"res_type"`
+	Status   string         `json:"status"`
+	Series   []MetricSeries `json:"series"`
+	FromDate int64          `json:"from_date"`
+	ToDate   int64          `json:"to_date"`
+	Query    string         `json:"query"`
+	Message  string         `json:"message"`
+	GroupBy  []string       `json:"group_by"`
+	ResType  string         `json:"res_type"`
 }
 
 // MetricSeries is a single timeseries result from a metrics query.
@@ -478,9 +478,9 @@ type SLOThreshold struct {
 
 // SLOOverallStatus holds the current SLI value for an SLO.
 type SLOOverallStatus struct {
-	SLI                   float64 `json:"sli"`
-	ErrorBudgetRemaining  float64 `json:"error_budget_remaining"`
-	Timeframe             string  `json:"timeframe"`
+	SLI                  float64 `json:"sli"`
+	ErrorBudgetRemaining float64 `json:"error_budget_remaining"`
+	Timeframe            string  `json:"timeframe"`
 }
 
 // SLOCreator holds creator info for an SLO.
@@ -523,13 +523,13 @@ type SLOHistoryResponse struct {
 
 // UsageSummaryEntry holds per-month usage data returned by GET /api/v1/usage/summary.
 type UsageSummaryEntry struct {
-	Date                         string  `json:"date"`
-	InfraHostTop99P              float64 `json:"infra_host_top99p"`
-	ContainerCountSum            float64 `json:"container_count_sum"`
-	CustomTSSum                  float64 `json:"custom_ts_sum"`
-	LogsIndexedLogsUsageSum      float64 `json:"logs_indexed_logs_usage_sum"`
-	APMHostTop99PSum             float64 `json:"apm_host_top99p_sum"`
-	RUMTotalSessionCountSum      float64 `json:"rum_total_session_count_sum"`
+	Date                    string  `json:"date"`
+	InfraHostTop99P         float64 `json:"infra_host_top99p"`
+	ContainerCountSum       float64 `json:"container_count_sum"`
+	CustomTSSum             float64 `json:"custom_ts_sum"`
+	LogsIndexedLogsUsageSum float64 `json:"logs_indexed_logs_usage_sum"`
+	APMHostTop99PSum        float64 `json:"apm_host_top99p_sum"`
+	RUMTotalSessionCountSum float64 `json:"rum_total_session_count_sum"`
 }
 
 // UsageSummaryResponse is the response envelope for GET /api/v1/usage/summary.
@@ -539,10 +539,10 @@ type UsageSummaryResponse struct {
 
 // UsageTopMetric holds per-metric usage data returned by GET /api/v1/usage/top_avg_metrics.
 type UsageTopMetric struct {
-	MetricName      string  `json:"metric_name"`
-	AvgMetricHour   float64 `json:"avg_metric_hour"`
-	MaxMetricHour   float64 `json:"max_metric_hour"`
-	MetricCategory  string  `json:"metric_category"`
+	MetricName     string  `json:"metric_name"`
+	AvgMetricHour  float64 `json:"avg_metric_hour"`
+	MaxMetricHour  float64 `json:"max_metric_hour"`
+	MetricCategory string  `json:"metric_category"`
 }
 
 // UsageTopMetricsResponse is the response envelope for GET /api/v1/usage/top_avg_metrics.
@@ -569,16 +569,16 @@ type UserAttributes struct {
 
 // User is a single user entry returned by GET /api/v2/users.
 type User struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Attributes UserAttributes         `json:"attributes"`
+	ID            string                 `json:"id"`
+	Type          string                 `json:"type"`
+	Attributes    UserAttributes         `json:"attributes"`
 	Relationships map[string]interface{} `json:"relationships"`
 }
 
 // UserListResponse is the response envelope for GET /api/v2/users.
 type UserListResponse struct {
-	Data []User                   `json:"data"`
-	Meta map[string]interface{}   `json:"meta"`
+	Data []User                 `json:"data"`
+	Meta map[string]interface{} `json:"meta"`
 }
 
 // UserGetResponse is the response envelope for GET /api/v2/users/{id}.
@@ -595,13 +595,13 @@ type PipelineFilter struct {
 
 // LogPipeline is a single pipeline entry returned by GET /api/v1/logs/config/pipelines.
 type LogPipeline struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Type       string          `json:"type"`
-	IsEnabled  bool            `json:"is_enabled"`
-	IsReadOnly bool            `json:"is_read_only"`
-	Filter     PipelineFilter  `json:"filter"`
-	Processors []interface{}   `json:"processors"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	IsEnabled  bool           `json:"is_enabled"`
+	IsReadOnly bool           `json:"is_read_only"`
+	Filter     PipelineFilter `json:"filter"`
+	Processors []interface{}  `json:"processors"`
 }
 
 // ---- API Keys API types (v2) ----
