@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/api"
+	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/auth"
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
 
@@ -47,6 +50,8 @@ var (
 	flagSite      string
 	flagAPIKey    string
 	flagAppKey    string
+	flagFields    string
+	flagJQ        string
 )
 
 var rootCmd = &cobra.Command{
@@ -86,6 +91,8 @@ func init() {
 	pf.StringVar(&flagSite, "site", "", "Datadog site (default: datadoghq.com)")
 	pf.StringVar(&flagAPIKey, "api-key", "", "Datadog API key")
 	pf.StringVar(&flagAppKey, "app-key", "", "Datadog Application key")
+	pf.StringVar(&flagFields, "fields", "", "Comma-separated list of fields to display")
+	pf.StringVar(&flagJQ, "jq", "", "JQ expression to filter JSON output")
 }
 
 // GetOutputOptions returns output options based on the current flag values.
@@ -94,5 +101,28 @@ func GetOutputOptions() output.Options {
 		JSON:      flagJSON,
 		Plaintext: flagPlaintext,
 		NoColor:   flagNoColor,
+		Fields:    flagFields,
+		JQExpr:    flagJQ,
+		Debug:     flagDebug,
 	}
 }
+
+// newClient resolves credentials from flags/env/config and returns an API client.
+// If credentials cannot be resolved, it prints a user-friendly error and calls os.Exit(1).
+func newClient() *api.DatadogClient {
+	creds, err := auth.ResolveCredentials(flagAPIKey, flagAppKey, flagSite, flagProfile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	return api.NewClient(api.ClientConfig{
+		APIKey:  creds.APIKey,
+		AppKey:  creds.AppKey,
+		Site:    creds.Site,
+		Verbose: flagVerbose,
+		Debug:   flagDebug,
+	})
+}
+
+// RootCmd exposes the root cobra command for use by external tools (e.g., gendocs).
+var RootCmd = rootCmd
