@@ -162,20 +162,31 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
 
-			// Timestamp
+			// Timestamp — v2 spans API uses start_timestamp (ISO 8601), not timestamp
 			ts := ""
-			if tsRaw, ok := attrs["timestamp"].(string); ok && tsRaw != "" {
-				if t, err := time.Parse(time.RFC3339Nano, tsRaw); err == nil {
-					ts = t.UTC().Format("2006-01-02 15:04:05")
-				} else if t, err := time.Parse(time.RFC3339, tsRaw); err == nil {
-					ts = t.UTC().Format("2006-01-02 15:04:05")
-				} else {
-					ts = tsRaw
+			for _, tsField := range []string{"start_timestamp", "timestamp"} {
+				if tsRaw, ok := attrs[tsField].(string); ok && tsRaw != "" {
+					if t, err := time.Parse(time.RFC3339Nano, tsRaw); err == nil {
+						ts = t.UTC().Format("2006-01-02 15:04:05")
+					} else if t, err := time.Parse(time.RFC3339, tsRaw); err == nil {
+						ts = t.UTC().Format("2006-01-02 15:04:05")
+					} else {
+						ts = tsRaw
+					}
+					break
 				}
 			}
 
-			// Duration from nanoseconds
-			dur := formatSpanDuration(attrs["duration"])
+			// Duration — v2 spans API puts duration in attributes.custom.duration (nanoseconds)
+			// Fall back to attributes.duration if not found in custom
+			var durVal interface{}
+			if custom, ok := attrs["custom"].(map[string]interface{}); ok {
+				durVal = custom["duration"]
+			}
+			if durVal == nil {
+				durVal = attrs["duration"]
+			}
+			dur := formatSpanDuration(durVal)
 
 			// HTTP status or error status
 			status := ""

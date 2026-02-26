@@ -72,6 +72,11 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Apply --limit
+	if flagLimit > 0 && len(data) > flagLimit {
+		data = data[:flagLimit]
+	}
+
 	type serviceRow struct {
 		Name string
 		Type string

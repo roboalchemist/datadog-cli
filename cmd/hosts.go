@@ -144,9 +144,18 @@ func runHostsList(cmd *cobra.Command, args []string) error {
 		platform := ""
 		cpuCores := ""
 		if meta, ok := host["meta"].(map[string]interface{}); ok {
-			osName = stringField(meta, "gohai")
+			// Extract OS name from gohai JSON blob (platform.os field)
+			if gohaiStr := stringField(meta, "gohai"); gohaiStr != "" {
+				var gohai map[string]interface{}
+				if err := json.Unmarshal([]byte(gohaiStr), &gohai); err == nil {
+					if platformMap, ok := gohai["platform"].(map[string]interface{}); ok {
+						osName = stringField(platformMap, "os")
+					}
+				}
+			}
+			// Fall back to meta.platform (e.g. "linux") if gohai parse failed
 			if osName == "" {
-				osName = stringField(meta, "os")
+				osName = stringField(meta, "platform")
 			}
 			platform = stringField(meta, "platform")
 			if v, ok := meta["cpuCores"]; ok {
