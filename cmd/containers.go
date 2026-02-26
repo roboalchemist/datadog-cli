@@ -75,7 +75,7 @@ func runContainersList(cmd *cobra.Command, args []string) error {
 
 	containersList, _ := raw["data"].([]interface{})
 	if len(containersList) == 0 {
-		fmt.Fprintln(os.Stdout, "No containers found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No containers found.")
 		return nil
 	}
 

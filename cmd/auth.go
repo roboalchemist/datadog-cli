@@ -214,8 +214,8 @@ func runAuthScopes(cmd *cobra.Command, args []string) error {
 		return output.RenderJSON(result, opts)
 	}
 
-	fmt.Fprintf(os.Stdout, "Datadog Application Key Scopes Required by datadog-cli\n\n")
-	fmt.Fprintf(os.Stdout, "Create a scoped Application Key with these permissions.\n\n")
+	_, _ = fmt.Fprintf(os.Stdout, "Datadog Application Key Scopes Required by datadog-cli\n\n")
+	_, _ = fmt.Fprintf(os.Stdout, "Create a scoped Application Key with these permissions.\n\n")
 
 	type scopeRow struct {
 		Scope       string
@@ -248,7 +248,7 @@ func runAuthScopes(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stdout, "\nTotal: %d scopes required for full datadog-cli functionality.\n", len(scopeNames))
+	_, _ = fmt.Fprintf(os.Stdout, "\nTotal: %d scopes required for full datadog-cli functionality.\n", len(scopeNames))
 	return nil
 }
 

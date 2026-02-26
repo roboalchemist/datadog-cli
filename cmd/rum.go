@@ -189,7 +189,7 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stdout, "No RUM events found matching your query.")
+		_, _ = fmt.Fprintln(os.Stdout, "No RUM events found matching your query.")
 		return nil
 	}
 
@@ -299,7 +299,7 @@ func runRumAggregate(cmd *cobra.Command, args []string) error {
 	bucketsRaw, _ := dataField["buckets"].([]interface{})
 
 	if len(bucketsRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No RUM events found for aggregation.")
+		_, _ = fmt.Fprintln(os.Stdout, "No RUM events found for aggregation.")
 		return nil
 	}
 

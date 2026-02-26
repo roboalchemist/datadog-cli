@@ -608,10 +608,9 @@ func TestApplyJQ_Identity(t *testing.T) {
 func TestApplyJQ_JQRuntimeError(t *testing.T) {
 	var buf bytes.Buffer
 	// .foo on a non-object (array) should produce a jq runtime error
-	err := applyJQ(&buf, []byte(`null`), ".foo")
 	// gojq returns nil for null.foo (outputs null), so check a truly bad expression
 	// Try to divide by zero which will produce a jq error
-	err = applyJQ(&buf, []byte(`1`), ". / 0")
+	err := applyJQ(&buf, []byte(`1`), ". / 0")
 	if err == nil {
 		t.Log("jq div-by-zero did not error (implementation-specific)")
 	}

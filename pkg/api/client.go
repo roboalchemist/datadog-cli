@@ -207,7 +207,7 @@ func (c *DatadogClient) executeRequest(method, fullURL string, bodyBytes []byte)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {

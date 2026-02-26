@@ -68,7 +68,7 @@ func runNotebooksList(cmd *cobra.Command, args []string) error {
 
 	notebooksRaw, _ := raw["data"].([]interface{})
 	if len(notebooksRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No notebooks found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No notebooks found.")
 		return nil
 	}
 
@@ -187,7 +187,7 @@ func runNotebooksGet(cmd *cobra.Command, args []string) error {
 		notebookType = notebooksStringField(metadata, "type")
 	}
 
-	fmt.Fprintf(os.Stdout, "Notebook: %s\n\n", name)
+	_, _ = fmt.Fprintf(os.Stdout, "Notebook: %s\n\n", name)
 
 	type detailRow struct {
 		Field string

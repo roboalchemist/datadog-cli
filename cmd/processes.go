@@ -82,7 +82,7 @@ func runProcessesList(cmd *cobra.Command, args []string) error {
 
 	processesList, _ := raw["data"].([]interface{})
 	if len(processesList) == 0 {
-		fmt.Fprintln(os.Stdout, "No processes found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No processes found.")
 		return nil
 	}
 

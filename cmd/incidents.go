@@ -68,7 +68,7 @@ func runIncidentsList(cmd *cobra.Command, args []string) error {
 
 	incidentsRaw, _ := raw["data"].([]interface{})
 	if len(incidentsRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No incidents found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No incidents found.")
 		return nil
 	}
 
@@ -187,7 +187,7 @@ func runIncidentsGet(cmd *cobra.Command, args []string) error {
 		timeToResolve = fmt.Sprintf("%.0fs", v)
 	}
 
-	fmt.Fprintf(os.Stdout, "Incident: %s\n\n", title)
+	_, _ = fmt.Fprintf(os.Stdout, "Incident: %s\n\n", title)
 
 	type detailRow struct {
 		Field string

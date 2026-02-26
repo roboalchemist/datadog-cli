@@ -75,7 +75,7 @@ func runTagsList(cmd *cobra.Command, args []string) error {
 	// API returns {"tags": {"hostname": ["tag1", "tag2"], ...}}
 	tagsMap, _ := raw["tags"].(map[string]interface{})
 	if len(tagsMap) == 0 {
-		fmt.Fprintln(os.Stdout, "No host tags found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No host tags found.")
 		return nil
 	}
 
@@ -175,7 +175,7 @@ func runTagsGet(cmd *cobra.Command, args []string) error {
 	// API returns {"tags": ["tag1", "tag2", ...]}
 	tagsRaw, _ := raw["tags"].([]interface{})
 	if len(tagsRaw) == 0 {
-		fmt.Fprintf(os.Stdout, "No tags found for host %q.\n", hostname)
+		_, _ = fmt.Fprintf(os.Stdout, "No tags found for host %q.\n", hostname)
 		return nil
 	}
 
@@ -216,7 +216,7 @@ func runTagsGet(cmd *cobra.Command, args []string) error {
 		{Name: "Value", Width: 60},
 	}
 
-	fmt.Fprintf(os.Stdout, "Host: %s  (%d tags)\n\n", hostname, len(tags))
+	_, _ = fmt.Fprintf(os.Stdout, "Host: %s  (%d tags)\n\n", hostname, len(tags))
 	return output.RenderTable(cols, tableRows, rows, opts)
 }
 

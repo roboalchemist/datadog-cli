@@ -68,7 +68,7 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 
 	data, _ := raw["data"].([]interface{})
 	if len(data) == 0 {
-		fmt.Fprintln(os.Stdout, "No APM services found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No APM services found.")
 		return nil
 	}
 
@@ -162,7 +162,7 @@ func runAPMDefinitions(cmd *cobra.Command, args []string) error {
 
 	data, _ := raw["data"].([]interface{})
 	if len(data) == 0 {
-		fmt.Fprintln(os.Stdout, "No service definitions found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No service definitions found.")
 		return nil
 	}
 
@@ -276,7 +276,7 @@ func runAPMDependencies(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(raw) == 0 {
-		fmt.Fprintf(os.Stdout, "No service dependencies found for env=%s.\n", apmDepsEnv)
+		_, _ = fmt.Fprintf(os.Stdout, "No service dependencies found for env=%s.\n", apmDepsEnv)
 		return nil
 	}
 

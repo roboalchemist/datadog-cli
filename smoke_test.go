@@ -25,7 +25,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "smoke: failed to create temp dir: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	smokeBinaryPath = filepath.Join(tmp, "datadog-cli-smoke")
 

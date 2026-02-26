@@ -65,7 +65,7 @@ func runDashboardsList(cmd *cobra.Command, args []string) error {
 
 	dashboardsRaw, _ := raw["dashboards"].([]interface{})
 	if len(dashboardsRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No dashboards found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No dashboards found.")
 		return nil
 	}
 
@@ -175,7 +175,7 @@ func runDashboardsGet(cmd *cobra.Command, args []string) error {
 		isReadOnly = "Yes"
 	}
 
-	fmt.Fprintf(os.Stdout, "Dashboard: %s\n\n", title)
+	_, _ = fmt.Fprintf(os.Stdout, "Dashboard: %s\n\n", title)
 
 	type detailRow struct {
 		Field string
@@ -274,7 +274,7 @@ func runDashboardsSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(filtered) == 0 {
-		fmt.Fprintf(os.Stdout, "No dashboards found matching %q.\n", dashboardsSearchQuery)
+		_, _ = fmt.Fprintf(os.Stdout, "No dashboards found matching %q.\n", dashboardsSearchQuery)
 		return nil
 	}
 

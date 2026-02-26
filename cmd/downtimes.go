@@ -64,7 +64,7 @@ func runDowntimesList(cmd *cobra.Command, args []string) error {
 
 	downtimesRaw, _ := raw["data"].([]interface{})
 	if len(downtimesRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No downtimes found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No downtimes found.")
 		return nil
 	}
 
@@ -184,7 +184,7 @@ func runDowntimesGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "Downtime: %s\n\n", scope)
+	_, _ = fmt.Fprintf(os.Stdout, "Downtime: %s\n\n", scope)
 
 	type detailRow struct {
 		Field string

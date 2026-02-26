@@ -85,7 +85,7 @@ func runSLOsList(cmd *cobra.Command, args []string) error {
 	dataRaw, _ := raw["data"].([]interface{})
 
 	if len(dataRaw) == 0 {
-		fmt.Fprintln(os.Stdout, "No SLOs found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No SLOs found.")
 		return nil
 	}
 
@@ -169,7 +169,7 @@ func runSLOsGet(cmd *cobra.Command, args []string) error {
 	}
 
 	name := slosStringField(slo, "name")
-	fmt.Fprintf(os.Stdout, "SLO: %s\n\n", name)
+	_, _ = fmt.Fprintf(os.Stdout, "SLO: %s\n\n", name)
 
 	// Extract thresholds
 	target := slosExtractTarget(slo)
@@ -302,7 +302,7 @@ func runSLOsHistory(cmd *cobra.Command, args []string) error {
 
 	historyData, _ := raw["data"].(map[string]interface{})
 	if historyData == nil {
-		fmt.Fprintln(os.Stdout, "No history data found.")
+		_, _ = fmt.Fprintln(os.Stdout, "No history data found.")
 		return nil
 	}
 
@@ -315,7 +315,7 @@ func runSLOsHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(historyList) == 0 {
-		fmt.Fprintln(os.Stdout, "No history entries found for the specified time range.")
+		_, _ = fmt.Fprintln(os.Stdout, "No history entries found for the specified time range.")
 		return nil
 	}
 
