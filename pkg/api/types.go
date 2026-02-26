@@ -338,3 +338,59 @@ type TagHostsResponse struct {
 type TagHostResponse struct {
 	Tags []string `json:"tags"`
 }
+
+// ---- Metrics API types ----
+
+// MetricsListResponse is the response envelope for GET /api/v1/metrics.
+type MetricsListResponse struct {
+	Metrics []string `json:"metrics"`
+	From    int64    `json:"from"`
+}
+
+// MetricsQueryResponse is the response envelope for GET /api/v1/query.
+type MetricsQueryResponse struct {
+	Status    string         `json:"status"`
+	Series    []MetricSeries `json:"series"`
+	FromDate  int64          `json:"from_date"`
+	ToDate    int64          `json:"to_date"`
+	Query     string         `json:"query"`
+	Message   string         `json:"message"`
+	GroupBy   []string       `json:"group_by"`
+	ResType   string         `json:"res_type"`
+}
+
+// MetricSeries is a single timeseries result from a metrics query.
+type MetricSeries struct {
+	Metric      string          `json:"metric"`
+	Expression  string          `json:"expression"`
+	Scope       string          `json:"scope"`
+	Unit        []MetricUnit    `json:"unit"`
+	Pointlist   [][]interface{} `json:"pointlist"`
+	Start       int64           `json:"start"`
+	End         int64           `json:"end"`
+	Interval    int64           `json:"interval"`
+	Length      int             `json:"length"`
+	Aggr        string          `json:"aggr"`
+	DisplayName string          `json:"display_name"`
+}
+
+// MetricUnit holds unit metadata for a metric series.
+type MetricUnit struct {
+	Family      string  `json:"family"`
+	ScaleFactor float64 `json:"scale_factor"`
+	Name        string  `json:"name"`
+	ShortName   string  `json:"short_name"`
+	Plural      string  `json:"plural"`
+	ShortPlural string  `json:"short_plural"`
+}
+
+// MetricsSearchResponse is the response envelope for GET /api/v1/search.
+type MetricsSearchResponse struct {
+	Results MetricsSearchResults `json:"results"`
+}
+
+// MetricsSearchResults holds the search result arrays from the search API.
+type MetricsSearchResults struct {
+	Metrics []string `json:"metrics"`
+	Hosts   []string `json:"hosts"`
+}
