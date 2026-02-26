@@ -127,6 +127,11 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 			}
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
+			// RUM v2 double-nests: entry.attributes.attributes contains app/type/action/view
+			innerAttrs, _ := attrs["attributes"].(map[string]interface{})
+			if innerAttrs == nil {
+				innerAttrs = attrs
+			}
 
 			// Format timestamp
 			ts := ""
@@ -142,26 +147,26 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 
 			// Extract application name
 			application := ""
-			if appMap, ok := attrs["application"].(map[string]interface{}); ok {
+			if appMap, ok := innerAttrs["application"].(map[string]interface{}); ok {
 				application = stringFieldFromMap(appMap, "name")
 			}
 
 			// Extract action type
 			action := ""
-			if actionMap, ok := attrs["action"].(map[string]interface{}); ok {
+			if actionMap, ok := innerAttrs["action"].(map[string]interface{}); ok {
 				action = stringFieldFromMap(actionMap, "type")
 			}
 
 			// Extract view name
 			view := ""
-			if viewMap, ok := attrs["view"].(map[string]interface{}); ok {
+			if viewMap, ok := innerAttrs["view"].(map[string]interface{}); ok {
 				view = stringFieldFromMap(viewMap, "name")
 			}
 
 			rows = append(rows, rumRow{
 				Timestamp:   ts,
 				Application: application,
-				Type:        stringFieldFromMap(attrs, "type"),
+				Type:        stringFieldFromMap(innerAttrs, "type"),
 				Action:      action,
 				View:        output.TruncateString(view, 40),
 			})

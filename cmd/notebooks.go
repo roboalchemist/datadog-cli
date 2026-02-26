@@ -87,7 +87,7 @@ func runNotebooksList(cmd *cobra.Command, args []string) error {
 		nb, _ := item.(map[string]interface{})
 		attrs, _ := nb["attributes"].(map[string]interface{})
 
-		id := fmt.Sprintf("%v", nb["id"])
+		id := formatID(nb["id"])
 		name := output.TruncateString(notebooksStringField(attrs, "name"), 45)
 		author := notebooksAuthor(attrs)
 		created := notebooksFormatTimestamp(attrs["created"])
@@ -156,7 +156,7 @@ func runNotebooksGet(cmd *cobra.Command, args []string) error {
 	}
 	attrs, _ := nb["attributes"].(map[string]interface{})
 
-	id := fmt.Sprintf("%v", nb["id"])
+	id := formatID(nb["id"])
 	name := notebooksStringField(attrs, "name")
 	author := notebooksAuthor(attrs)
 	authorHandle := ""

@@ -119,7 +119,7 @@ func runEventsList(cmd *cobra.Command, args []string) error {
 
 	for _, item := range eventsRaw {
 		e, _ := item.(map[string]interface{})
-		id := fmt.Sprintf("%v", e["id"])
+		id := formatID(e["id"])
 		title := output.TruncateString(eventsStringField(e, "title"), 45)
 		src := eventsStringField(e, "source_type_name")
 		priority := eventsStringField(e, "priority")
@@ -187,7 +187,7 @@ func runEventsGet(cmd *cobra.Command, args []string) error {
 		eventData = raw
 	}
 
-	id := fmt.Sprintf("%v", eventData["id"])
+	id := formatID(eventData["id"])
 	title := eventsStringField(eventData, "title")
 	text := output.TruncateString(eventsStringField(eventData, "text"), 200)
 	src := eventsStringField(eventData, "source_type_name")
