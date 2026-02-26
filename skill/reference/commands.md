@@ -11,8 +11,11 @@ Apply to all commands.
 | `--json` | `-j` | false | Output as JSON |
 | `--plaintext` | `-p` | false | Plain text output (no color, no borders) |
 | `--no-color` | | false | Disable color output |
+| `--quiet` | `-q` | false | Suppress progress output |
+| `--silent` | | false | Suppress progress output (synonym for --quiet) |
 | `--debug` | | false | Enable debug logging |
 | `--verbose` | `-v` | false | Verbose output |
+| `--version` | `-V` | | Print version and exit (GNU standard) |
 | `--limit` | `-l` | 100 | Maximum number of results to return |
 | `--fields` | | | Comma-separated list of columns to display |
 | `--jq` | | | JQ expression to filter JSON output |
@@ -20,6 +23,25 @@ Apply to all commands.
 | `--site` | | datadoghq.com | Datadog site |
 | `--api-key` | | | Datadog API key (overrides env/config) |
 | `--app-key` | | | Datadog Application key (overrides env/config) |
+
+### Exit Status
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | User/authentication error |
+| `2` | Usage error (invalid flags or arguments) |
+| `3` | System/network/server error |
+
+### Structured JSON Errors
+
+When `--json` is active, errors are written to stderr as structured JSON instead of plain text:
+
+```json
+{"error": "Unauthorized (401)", "code": "auth_error", "recoverable": false, "suggestion": "Check DD_API_KEY and DD_APP_KEY"}
+```
+
+Note: auth errors report `"Unauthorized (401)"` — this covers both bad keys and insufficient scopes.
 
 ---
 
@@ -144,6 +166,8 @@ datadog-cli traces search -q "*" --limit 50 --json
 | `--sort` | | | Sort field: `timestamp`, `-timestamp`, `duration`, `-duration` |
 | `--filter-query` | | | Additional filter query |
 
+Note: the TIMESTAMP and DURATION columns are populated from the v2 spans API response fields (`start_timestamp` and `custom.duration` respectively).
+
 Required scope: `apm_read`
 
 ### traces aggregate
@@ -192,9 +216,10 @@ List all APM services.
 ```bash
 datadog-cli apm services
 datadog-cli apm services --json
+datadog-cli apm services --limit 50
 ```
 
-No command-specific flags.
+No command-specific flags (uses global `--limit`).
 
 Required scope: `apm_read`
 
@@ -205,9 +230,10 @@ List APM service definitions from the Service Catalog.
 ```bash
 datadog-cli apm definitions
 datadog-cli apm definitions --json
+datadog-cli apm definitions --limit 50
 ```
 
-No command-specific flags.
+No command-specific flags (uses global `--limit`).
 
 Required scope: `apm_service_catalog_read`
 
@@ -302,6 +328,8 @@ datadog-cli hosts list --json
 | `--sort-dir` | | | Sort direction: `asc` or `desc` |
 | `--count` | | 0 (uses --limit) | Number of hosts to return |
 | `--start` | | 0 | Starting offset for pagination |
+
+Note: the OS column shows the human-readable platform name (e.g. `GNU/Linux`) extracted from the Datadog agent gohai payload — not raw JSON.
 
 Required scope: `hosts_read`
 
@@ -507,6 +535,8 @@ datadog-cli downtimes list --json
 
 No command-specific flags (uses global `--limit`).
 
+Note: the SCOPE column renders monitor IDs as clean integers (e.g. `80927262`), not scientific notation.
+
 Required scope: `monitors_downtime`
 
 ### downtimes get
@@ -604,6 +634,8 @@ datadog-cli rum search -q "application.id:abc123" --from 2h --json
 | `--query` | `-q` | (required) | RUM search query |
 | `--from` | | `15m` | Start time |
 | `--to` | | `now` | End time |
+
+Note: the APPLICATION, TYPE, ACTION, and VIEW columns are populated from the RUM event attributes in the API response.
 
 Required scope: `rum_read`
 
