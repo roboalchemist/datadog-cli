@@ -48,6 +48,8 @@ type Client = DatadogClient
 // NewClient creates a new DatadogClient from the given ClientConfig.
 // The base URL is constructed as https://api.{site}/ using the site in the config.
 // Special case: ddog-gov.com is used as-is (not prefixed with "api.").
+// Override: if DD_API_URL env var is set, it is used as the base URL directly
+// (useful for integration tests pointing at a local mock server).
 func NewClient(cfg ClientConfig) *DatadogClient {
 	site := cfg.Site
 	if site == "" {
@@ -60,7 +62,13 @@ func NewClient(cfg ClientConfig) *DatadogClient {
 	}
 
 	var baseURL string
-	if strings.Contains(site, "ddog-gov.com") {
+	// DD_API_URL overrides the constructed URL entirely (e.g. for integration tests)
+	if override := os.Getenv("DD_API_URL"); override != "" {
+		baseURL = override
+		if !strings.HasSuffix(baseURL, "/") {
+			baseURL += "/"
+		}
+	} else if strings.Contains(site, "ddog-gov.com") {
 		baseURL = fmt.Sprintf("https://%s/", site)
 	} else {
 		baseURL = fmt.Sprintf("https://api.%s/", site)
