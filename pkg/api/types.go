@@ -243,3 +243,42 @@ type SpanBucketAttributes struct {
 	By      map[string]interface{} `json:"by"`
 	Compute map[string]interface{} `json:"compute"`
 }
+
+// ---- APM Service Catalog types ----
+
+// ServiceDefinitionResponse is the response envelope for GET /api/v2/services/definitions.
+type ServiceDefinitionResponse struct {
+	Data []ServiceDefinitionItem `json:"data"`
+}
+
+// ServiceDefinitionItem is a single service definition entry.
+type ServiceDefinitionItem struct {
+	ID         string                        `json:"id"`
+	Type       string                        `json:"type"`
+	Attributes ServiceDefinitionAttributes   `json:"attributes"`
+}
+
+// ServiceDefinitionAttributes holds the attributes of a service definition.
+type ServiceDefinitionAttributes struct {
+	Meta   ServiceDefinitionMeta          `json:"meta"`
+	Schema map[string]interface{}         `json:"schema"`
+}
+
+// ServiceDefinitionMeta contains metadata for a service definition (schema version, etc.).
+type ServiceDefinitionMeta struct {
+	DDService     string `json:"dd-service"`
+	SchemaVersion string `json:"schema-version"`
+	Ref           string `json:"ref"`
+	Origin        string `json:"origin"`
+}
+
+// ---- APM Service Dependencies types ----
+
+// ServiceDependenciesResponse is the response from GET /api/v1/service_dependencies.
+// It is a map of service name → ServiceDependency.
+type ServiceDependenciesResponse map[string]ServiceDependency
+
+// ServiceDependency represents the downstream call list for one service.
+type ServiceDependency struct {
+	Calls []string `json:"calls"`
+}
