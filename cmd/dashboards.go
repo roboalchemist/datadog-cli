@@ -18,12 +18,15 @@ import (
 var dashboardsCmd = &cobra.Command{
 	Use:   "dashboards",
 	Short: "Query dashboards from Datadog",
-	Long: `Query dashboards from Datadog.
+	Long:  `Query dashboards from Datadog.`,
+	Example: `  # List all dashboards
+  datadog-cli dashboards list
 
-Subcommands:
-  list    List dashboards
-  get     Get dashboard details by ID
-  search  Search dashboards by title`,
+  # Get a specific dashboard by ID
+  datadog-cli dashboards get abc-123-def
+
+  # Search dashboards by title keyword
+  datadog-cli dashboards search -q "system"`,
 }
 
 // ---- dashboards list ----
@@ -33,10 +36,11 @@ var dashboardsListCmd = &cobra.Command{
 	Short: "List dashboards",
 	Long: `List all dashboards from Datadog.
 
-Uses GET /api/v1/dashboard.
-
-Examples:
+Uses GET /api/v1/dashboard.`,
+	Example: `  # List all dashboards
   datadog-cli dashboards list
+
+  # List dashboards in JSON format
   datadog-cli dashboards list --json`,
 	RunE: runDashboardsList,
 }
@@ -118,10 +122,11 @@ var dashboardsGetCmd = &cobra.Command{
 	Short: "Get dashboard details by ID",
 	Long: `Get detailed information about a specific dashboard.
 
-Uses GET /api/v1/dashboard/{id}.
-
-Examples:
+Uses GET /api/v1/dashboard/{id}.`,
+	Example: `  # Get details for a dashboard
   datadog-cli dashboards get abc-123-def
+
+  # Get dashboard details in JSON format
   datadog-cli dashboards get abc-123-def --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDashboardsGet,
@@ -218,11 +223,14 @@ var dashboardsSearchCmd = &cobra.Command{
 	Short: "Search dashboards by title",
 	Long: `Search dashboards by title (client-side filter).
 
-Uses GET /api/v1/dashboard and filters results locally by title substring.
-
-Examples:
+Uses GET /api/v1/dashboard and filters results locally by title substring.`,
+	Example: `  # Search dashboards by title keyword
   datadog-cli dashboards search --query "system"
+
+  # Search for performance dashboards
   datadog-cli dashboards search -q "performance"
+
+  # Search for monitoring dashboards and output as JSON
   datadog-cli dashboards search --query "monitoring" --json`,
 	RunE: runDashboardsSearch,
 }

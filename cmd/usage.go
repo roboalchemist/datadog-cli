@@ -18,11 +18,12 @@ import (
 var usageCmd = &cobra.Command{
 	Use:   "usage",
 	Short: "Query usage metering from Datadog",
-	Long: `Query usage metering from Datadog.
+	Long:  `Query usage metering from Datadog.`,
+	Example: `  # Get usage summary for January 2024
+  datadog-cli usage summary --start-month 2024-01
 
-Subcommands:
-  summary      Get usage summary by month
-  top-metrics  Get top average custom metrics`,
+  # Get top custom metrics for the current month
+  datadog-cli usage top-metrics`,
 }
 
 // ---- usage summary ----
@@ -40,11 +41,14 @@ var usageSummaryCmd = &cobra.Command{
 Uses GET /api/v1/usage/summary. Requires --start-month (YYYY-MM).
 
 Note: This endpoint requires usage_read scope and is only accessible
-for parent-level organizations.
-
-Examples:
+for parent-level organizations.`,
+	Example: `  # Get usage summary for January 2024
   datadog-cli usage summary --start-month 2024-01
+
+  # Get usage summary for a quarter
   datadog-cli usage summary --start-month 2024-01 --end-month 2024-03
+
+  # Get usage summary as JSON
   datadog-cli usage summary --start-month 2024-01 --json`,
 	RunE: runUsageSummary,
 }
@@ -153,11 +157,14 @@ var usageTopMetricsCmd = &cobra.Command{
 	Short: "Get top average custom metrics",
 	Long: `Get all custom metrics by hourly average for a given month.
 
-Uses GET /api/v1/usage/top_avg_metrics.
-
-Examples:
+Uses GET /api/v1/usage/top_avg_metrics.`,
+	Example: `  # Get top custom metrics for January 2024
   datadog-cli usage top-metrics --month 2024-01
+
+  # Filter top metrics by name
   datadog-cli usage top-metrics --month 2024-01 --metric-name "my.metric"
+
+  # Get top metrics as JSON
   datadog-cli usage top-metrics --json`,
 	RunE: runUsageTopMetrics,
 }

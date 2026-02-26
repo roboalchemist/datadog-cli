@@ -19,10 +19,12 @@ var containersCmd = &cobra.Command{
 	Long: `Query container information from Datadog.
 
 Uses the Datadog v2 Containers API to list running containers
-across your infrastructure.
+across your infrastructure.`,
+	Example: `  # List all running containers
+  datadog-cli containers list
 
-Subcommands:
-  list  List containers`,
+  # Filter containers by Kubernetes namespace
+  datadog-cli containers list --filter "kube_namespace:production"`,
 }
 
 // ---- containers list ----
@@ -34,13 +36,15 @@ var containersListCmd = &cobra.Command{
 	Short: "List containers",
 	Long: `List containers from Datadog using the v2 containers API.
 
-Uses GET /api/v2/containers.
-
-Examples:
+Uses GET /api/v2/containers.`,
+	Example: `  # List all running containers
   datadog-cli containers list
+
+  # Filter containers by Kubernetes namespace
   datadog-cli containers list --filter "kube_namespace:production"
-  datadog-cli containers list --filter "image_name:nginx"
-  datadog-cli containers list --json`,
+
+  # Filter by image name and output as JSON
+  datadog-cli containers list --filter "image_name:nginx" --json`,
 	RunE: runContainersList,
 }
 

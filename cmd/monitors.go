@@ -18,12 +18,15 @@ import (
 var monitorsCmd = &cobra.Command{
 	Use:   "monitors",
 	Short: "Query monitors from Datadog",
-	Long: `Query monitors from Datadog.
+	Long:  `Query monitors from Datadog.`,
+	Example: `  # List all monitors
+  datadog-cli monitors list
 
-Subcommands:
-  list    List monitors
-  get     Get monitor details by ID
-  search  Search monitors by query`,
+  # Get details for a specific monitor
+  datadog-cli monitors get 12345
+
+  # Search monitors by keyword
+  datadog-cli monitors search -q "cpu"`,
 }
 
 // ---- monitors list ----
@@ -39,14 +42,15 @@ var monitorsListCmd = &cobra.Command{
 	Short: "List monitors",
 	Long: `List monitors from Datadog.
 
-Uses GET /api/v1/monitor.
-
-Examples:
+Uses GET /api/v1/monitor.`,
+	Example: `  # List all monitors
   datadog-cli monitors list
+
+  # Filter monitors by tag
   datadog-cli monitors list --tags "env:production"
-  datadog-cli monitors list --name "CPU"
-  datadog-cli monitors list --group-states "alert,warn"
-  datadog-cli monitors list --json`,
+
+  # List only alerting and warning monitors
+  datadog-cli monitors list --group-states "alert,warn" --json`,
 	RunE: runMonitorsList,
 }
 
@@ -145,10 +149,11 @@ var monitorsGetCmd = &cobra.Command{
 	Short: "Get monitor details by ID",
 	Long: `Get detailed information about a specific monitor.
 
-Uses GET /api/v1/monitor/{id}.
-
-Examples:
+Uses GET /api/v1/monitor/{id}.`,
+	Example: `  # Get details for a monitor
   datadog-cli monitors get 12345
+
+  # Get monitor details in JSON format
   datadog-cli monitors get 12345 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runMonitorsGet,
@@ -280,11 +285,14 @@ var monitorsSearchCmd = &cobra.Command{
 	Short: "Search monitors by query",
 	Long: `Search monitors by name, tags, or query string.
 
-Uses GET /api/v1/monitor/search.
-
-Examples:
+Uses GET /api/v1/monitor/search.`,
+	Example: `  # Search for CPU-related monitors
   datadog-cli monitors search --query "cpu"
+
+  # Search for monitors in production environment
   datadog-cli monitors search -q "env:production"
+
+  # Search for disk monitors and output as JSON
   datadog-cli monitors search --query "disk" --json`,
 	RunE: runMonitorsSearch,
 }
