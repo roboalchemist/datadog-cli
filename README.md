@@ -5,8 +5,12 @@ A read-only CLI for the Datadog API. Query logs, metrics, monitors, dashboards, 
 ## Installation
 
 ```bash
-brew tap roboalchemist/tap ssh://git@github.com:2222/roboalchemist/homebrew-private.git
+# Homebrew
+brew tap roboalchemist/tap
 brew install datadog-cli
+
+# Or install directly with Go
+go install github.com/roboalchemist/datadog-cli@latest
 ```
 
 ## Quick Start
