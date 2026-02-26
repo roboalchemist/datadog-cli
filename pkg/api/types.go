@@ -112,3 +112,75 @@ type PaginationMeta struct {
 	PageSize   int `json:"page_size"`
 	TotalCount int `json:"total_count"`
 }
+
+// ---- Logs API types ----
+
+// LogEvent is a single log event returned by the logs search API (v2).
+type LogEvent struct {
+	ID         string            `json:"id"`
+	Type       string            `json:"type"`
+	Attributes LogEventAttributes `json:"attributes"`
+}
+
+// LogEventAttributes holds the fields of a log event.
+type LogEventAttributes struct {
+	Timestamp  string                 `json:"timestamp"`
+	Host       string                 `json:"host"`
+	Service    string                 `json:"service"`
+	Status     string                 `json:"status"`
+	Message    string                 `json:"message"`
+	Attributes map[string]interface{} `json:"attributes"`
+	Tags       []string               `json:"tags"`
+}
+
+// LogSearchResponse is the response envelope for POST /api/v2/logs/events/search.
+type LogSearchResponse struct {
+	Data []LogEvent        `json:"data"`
+	Meta LogSearchMeta     `json:"meta"`
+}
+
+// LogSearchMeta holds pagination metadata for log search responses.
+type LogSearchMeta struct {
+	Page LogSearchPage `json:"page"`
+}
+
+// LogSearchPage contains cursor-based pagination info for log searches.
+type LogSearchPage struct {
+	After      string `json:"after"`
+	TotalCount int    `json:"total_count"`
+}
+
+// LogAggregateResponse is the response envelope for POST /api/v2/logs/analytics/aggregate.
+type LogAggregateResponse struct {
+	Data LogAggregateData `json:"data"`
+}
+
+// LogAggregateData wraps the list of aggregation buckets.
+type LogAggregateData struct {
+	Buckets []LogAggregateBucket `json:"buckets"`
+}
+
+// LogAggregateBucket is one result bucket from a log aggregation.
+type LogAggregateBucket struct {
+	By       map[string]interface{} `json:"by"`
+	Computes map[string]interface{} `json:"computes"`
+}
+
+// LogIndex is a single log index entry returned by GET /api/v1/logs/indexes.
+type LogIndex struct {
+	Name             string        `json:"name"`
+	Filter           LogIndexFilter `json:"filter"`
+	NumRetentionDays int           `json:"num_retention_days"`
+	DailyLimit       int           `json:"daily_limit"`
+	IsRateLimited    bool          `json:"is_rate_limited"`
+}
+
+// LogIndexFilter holds the filter query for a log index.
+type LogIndexFilter struct {
+	Query string `json:"query"`
+}
+
+// LogIndexListResponse is the response envelope for GET /api/v1/logs/indexes.
+type LogIndexListResponse struct {
+	Indexes []LogIndex `json:"indexes"`
+}
