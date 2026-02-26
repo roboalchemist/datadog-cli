@@ -17,13 +17,15 @@ import (
 var apmCmd = &cobra.Command{
 	Use:   "apm",
 	Short: "Query APM services, definitions, and dependencies",
-	Long: `Query APM services, service catalog definitions, and service dependencies.
+	Long:  `Query APM services, service catalog definitions, and service dependencies.`,
+	Example: `  # List all APM services
+  datadog-cli apm services
 
-Subcommands:
-  services      List APM services
-  definitions   List service catalog definitions (more detail)
-  dependencies  Show service dependency map
-  deps          Alias for dependencies`,
+  # Show service dependency map for production
+  datadog-cli apm dependencies --env production
+
+  # List service catalog definitions as JSON
+  datadog-cli apm definitions --json`,
 }
 
 // ---- apm services ----
@@ -33,10 +35,11 @@ var apmServicesCmd = &cobra.Command{
 	Short: "List APM services",
 	Long: `List APM services from the service catalog.
 
-Uses GET /api/v2/services/definitions.
-
-Examples:
+Uses GET /api/v2/services/definitions.`,
+	Example: `  # List all APM services
   datadog-cli apm services
+
+  # List services in JSON format
   datadog-cli apm services --json`,
 	RunE: runAPMServices,
 }
@@ -121,10 +124,11 @@ var apmDefinitionsCmd = &cobra.Command{
 	Short: "List service catalog definitions",
 	Long: `List service catalog definitions with full detail.
 
-Uses GET /api/v2/services/definitions.
-
-Examples:
+Uses GET /api/v2/services/definitions.`,
+	Example: `  # List all service catalog definitions
   datadog-cli apm definitions
+
+  # List definitions in JSON format
   datadog-cli apm definitions --json`,
 	RunE: runAPMDefinitions,
 }
@@ -220,11 +224,14 @@ var apmDependenciesCmd = &cobra.Command{
 	Short: "Show service dependency map",
 	Long: `Show APM service dependencies (service map).
 
-Uses GET /api/v1/service_dependencies.
-
-Examples:
+Uses GET /api/v1/service_dependencies.`,
+	Example: `  # Show all service dependencies in production
   datadog-cli apm dependencies --env production
+
+  # Show dependencies for a specific service in staging
   datadog-cli apm dependencies --env staging --service my-service
+
+  # Show dependencies as JSON
   datadog-cli apm dependencies --env production --json`,
 	RunE: runAPMDependencies,
 }
@@ -234,12 +241,12 @@ var apmDepsCmd = &cobra.Command{
 	Short: "Alias for dependencies — show service dependency map",
 	Long: `Show APM service dependencies (service map). Alias for 'dependencies'.
 
-Uses GET /api/v1/service_dependencies.
-
-Examples:
+Uses GET /api/v1/service_dependencies.`,
+	Example: `  # Show all service dependencies in production
   datadog-cli apm deps --env production
-  datadog-cli apm deps --env staging --service my-service
-  datadog-cli apm deps --env production --json`,
+
+  # Show dependencies for a specific service
+  datadog-cli apm deps --env staging --service my-service`,
 	RunE: runAPMDependencies,
 }
 

@@ -20,10 +20,12 @@ var apiKeysCmd = &cobra.Command{
 	Long: `Query API keys from Datadog.
 
 Only key metadata is returned — the actual key values are never exposed.
-The last 4 characters are shown for identification.
+The last 4 characters are shown for identification.`,
+	Example: `  # List all API keys (metadata only, no secrets)
+  datadog-cli api-keys list
 
-Subcommands:
-  list  List API keys`,
+  # List API keys in JSON format
+  datadog-cli api-keys list --json`,
 }
 
 // ---- api-keys list ----
@@ -36,10 +38,11 @@ var apiKeysListCmd = &cobra.Command{
 Uses GET /api/v2/api_keys.
 Required scope: api_keys_read
 
-For security, actual key values are not exposed — only the last 4 characters.
-
-Examples:
+For security, actual key values are not exposed — only the last 4 characters.`,
+	Example: `  # List all API keys
   datadog-cli api-keys list
+
+  # List API keys in JSON format
   datadog-cli api-keys list --json`,
 	RunE: runAPIKeysList,
 }

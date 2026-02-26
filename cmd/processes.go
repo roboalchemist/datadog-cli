@@ -19,10 +19,12 @@ var processesCmd = &cobra.Command{
 	Long: `Query live process information from Datadog.
 
 Uses the Datadog v2 Processes API to list running processes
-across your infrastructure.
+across your infrastructure.`,
+	Example: `  # List all running processes
+  datadog-cli processes list
 
-Subcommands:
-  list  List processes`,
+  # Search for Python processes on a specific host
+  datadog-cli processes list --search "python" --host "web-server-01"`,
 }
 
 // ---- processes list ----
@@ -37,14 +39,15 @@ var processesListCmd = &cobra.Command{
 	Short: "List processes",
 	Long: `List live processes from Datadog using the v2 processes API.
 
-Uses GET /api/v2/processes.
-
-Examples:
+Uses GET /api/v2/processes.`,
+	Example: `  # List all running processes
   datadog-cli processes list
+
+  # Search for Python processes
   datadog-cli processes list --search "python"
-  datadog-cli processes list --host "web-server-01"
-  datadog-cli processes list --search "nginx" --host "web-server-01"
-  datadog-cli processes list --json`,
+
+  # Search for nginx processes on a specific host and output as JSON
+  datadog-cli processes list --search "nginx" --host "web-server-01" --json`,
 	RunE: runProcessesList,
 }
 

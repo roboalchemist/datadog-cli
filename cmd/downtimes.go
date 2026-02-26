@@ -17,11 +17,15 @@ import (
 var downtimesCmd = &cobra.Command{
 	Use:   "downtimes",
 	Short: "Query downtimes (maintenance windows) from Datadog",
-	Long: `Query downtimes (maintenance windows) from Datadog.
+	Long:  `Query downtimes (maintenance windows) from Datadog.`,
+	Example: `  # List all downtimes
+  datadog-cli downtimes list
 
-Subcommands:
-  list    List downtimes
-  get     Get downtime details by ID`,
+  # Get details for a specific downtime
+  datadog-cli downtimes get abc123
+
+  # List downtimes in JSON format
+  datadog-cli downtimes list --json`,
 }
 
 // ---- downtimes list ----
@@ -31,10 +35,11 @@ var downtimesListCmd = &cobra.Command{
 	Short: "List downtimes",
 	Long: `List all downtimes (maintenance windows) from Datadog.
 
-Uses GET /api/v2/downtime.
-
-Examples:
+Uses GET /api/v2/downtime.`,
+	Example: `  # List all active and scheduled downtimes
   datadog-cli downtimes list
+
+  # List downtimes in JSON format
   datadog-cli downtimes list --json`,
 	RunE: runDowntimesList,
 }
@@ -122,10 +127,11 @@ var downtimesGetCmd = &cobra.Command{
 	Short: "Get downtime details by ID",
 	Long: `Get detailed information about a specific downtime.
 
-Uses GET /api/v2/downtime/{id}.
-
-Examples:
+Uses GET /api/v2/downtime/{id}.`,
+	Example: `  # Get details for a specific downtime
   datadog-cli downtimes get abc123
+
+  # Get downtime details in JSON format
   datadog-cli downtimes get abc123 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDowntimesGet,

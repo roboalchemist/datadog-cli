@@ -18,12 +18,15 @@ import (
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Query and aggregate logs from Datadog Log Explorer",
-	Long: `Query logs from Datadog Log Explorer.
+	Long:  `Query logs from Datadog Log Explorer.`,
+	Example: `  # Search logs for errors in the last hour
+  datadog-cli logs search -q "status:error" --from 1h
 
-Subcommands:
-  search     Search logs matching a query
-  aggregate  Aggregate logs by fields
-  indexes    List configured log indexes`,
+  # Aggregate logs by service
+  datadog-cli logs aggregate -q "*" --group-by service --compute count
+
+  # List configured log indexes
+  datadog-cli logs indexes`,
 }
 
 // ---- logs search ----
@@ -39,13 +42,15 @@ var (
 var logsSearchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "Search logs matching a query",
-	Long: `Search logs using Datadog query syntax.
-
-Examples:
+	Long:  `Search logs using Datadog query syntax.`,
+	Example: `  # Search for errors in the my-app service
   datadog-cli logs search --query "service:my-app status:error"
+
+  # Search with a time range
   datadog-cli logs search -q "service:api-gateway" --from 1h --to now
-  datadog-cli logs search -q "@http.status_code:>=500" --limit 50
-  datadog-cli logs search -q "*" --from 2024-01-15T00:00:00Z --to 2024-01-16T00:00:00Z`,
+
+  # Search for HTTP 5xx errors and output JSON
+  datadog-cli logs search -q "@http.status_code:>=500" --limit 50 --json`,
 	RunE: runLogsSearch,
 }
 
@@ -204,11 +209,14 @@ var (
 var logsAggregateCmd = &cobra.Command{
 	Use:   "aggregate",
 	Short: "Aggregate logs by fields",
-	Long: `Aggregate logs using Datadog Log Analytics.
-
-Examples:
+	Long:  `Aggregate logs using Datadog Log Analytics.`,
+	Example: `  # Count logs by service
   datadog-cli logs aggregate -q "service:*" --group-by service --compute count
+
+  # Count errors grouped by host
   datadog-cli logs aggregate -q "status:error" --group-by host --compute count
+
+  # Count all logs from the last day grouped by status
   datadog-cli logs aggregate -q "*" --from 1d --group-by status`,
 	RunE: runLogsAggregate,
 }
@@ -336,10 +344,11 @@ func runLogsAggregate(cmd *cobra.Command, args []string) error {
 var logsIndexesCmd = &cobra.Command{
 	Use:   "indexes",
 	Short: "List configured log indexes",
-	Long: `List all log indexes configured in your Datadog account.
-
-Examples:
+	Long:  `List all log indexes configured in your Datadog account.`,
+	Example: `  # List all log indexes
   datadog-cli logs indexes
+
+  # List indexes in JSON format
   datadog-cli logs indexes --json`,
 	RunE: runLogsIndexes,
 }

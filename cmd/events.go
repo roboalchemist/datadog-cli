@@ -18,11 +18,15 @@ import (
 var eventsCmd = &cobra.Command{
 	Use:   "events",
 	Short: "Query events from the Datadog event stream",
-	Long: `Query events from the Datadog event stream.
+	Long:  `Query events from the Datadog event stream.`,
+	Example: `  # List events from the last day
+  datadog-cli events list --start 1d
 
-Subcommands:
-  list    List events within a time range
-  get     Get event details by ID`,
+  # Filter events by tag in production
+  datadog-cli events list --tags "env:production"
+
+  # Get details for a specific event
+  datadog-cli events get 12345`,
 }
 
 // ---- events list ----
@@ -40,16 +44,15 @@ var eventsListCmd = &cobra.Command{
 	Short: "List events from the event stream",
 	Long: `List events from the Datadog event stream within a time range.
 
-Uses GET /api/v1/events. Time values are Unix seconds.
-
-Examples:
-  datadog-cli events list
+Uses GET /api/v1/events. Time values are Unix seconds.`,
+	Example: `  # List events from the last day
   datadog-cli events list --start 1d
-  datadog-cli events list --start 2h --end now
-  datadog-cli events list --priority normal
-  datadog-cli events list --sources "jenkins,github"
-  datadog-cli events list --tags "env:production"
-  datadog-cli events list --json`,
+
+  # List normal priority events from CI sources
+  datadog-cli events list --priority normal --sources "jenkins,github"
+
+  # List events tagged for production as JSON
+  datadog-cli events list --tags "env:production" --json`,
 	RunE: runEventsList,
 }
 
@@ -153,10 +156,11 @@ var eventsGetCmd = &cobra.Command{
 	Short: "Get event details by ID",
 	Long: `Get detailed information about a specific event.
 
-Uses GET /api/v1/events/{id}.
-
-Examples:
+Uses GET /api/v1/events/{id}.`,
+	Example: `  # Get details for a specific event
   datadog-cli events get 12345
+
+  # Get event details in JSON format
   datadog-cli events get 12345 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEventsGet,

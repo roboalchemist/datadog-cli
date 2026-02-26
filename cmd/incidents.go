@@ -18,11 +18,15 @@ import (
 var incidentsCmd = &cobra.Command{
 	Use:   "incidents",
 	Short: "Query incidents from Datadog",
-	Long: `Query incidents from Datadog.
+	Long:  `Query incidents from Datadog.`,
+	Example: `  # List all incidents
+  datadog-cli incidents list
 
-Subcommands:
-  list    List incidents
-  get     Get incident details by ID`,
+  # Get details for a specific incident
+  datadog-cli incidents get abc12345-1234-5678-abcd-1234567890ab
+
+  # List incidents in JSON format
+  datadog-cli incidents list --json`,
 }
 
 // ---- incidents list ----
@@ -32,10 +36,11 @@ var incidentsListCmd = &cobra.Command{
 	Short: "List incidents",
 	Long: `List all incidents from Datadog.
 
-Uses GET /api/v2/incidents.
-
-Examples:
+Uses GET /api/v2/incidents.`,
+	Example: `  # List all incidents
   datadog-cli incidents list
+
+  # List incidents in JSON format
   datadog-cli incidents list --json`,
 	RunE: runIncidentsList,
 }
@@ -121,10 +126,11 @@ var incidentsGetCmd = &cobra.Command{
 	Short: "Get incident details by ID",
 	Long: `Get detailed information about a specific incident.
 
-Uses GET /api/v2/incidents/{id}.
-
-Examples:
+Uses GET /api/v2/incidents/{id}.`,
+	Example: `  # Get details for a specific incident
   datadog-cli incidents get abc12345-1234-5678-abcd-1234567890ab
+
+  # Get incident details in JSON format
   datadog-cli incidents get abc12345-1234-5678-abcd-1234567890ab --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runIncidentsGet,
