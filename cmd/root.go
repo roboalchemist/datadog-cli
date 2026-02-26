@@ -14,11 +14,11 @@ import (
 
 // Package-level vars set by main.go via Set* functions.
 var (
-	version         string
-	readmeContents  string
-	skillMD         string
-	commandsRef     string
-	skillFS         fs.FS
+	version        string
+	readmeContents string
+	skillMD        string
+	commandsRef    string
+	skillFS        fs.FS
 )
 
 // SetVersion sets the binary version string (injected via ldflags).

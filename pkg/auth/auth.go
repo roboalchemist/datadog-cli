@@ -19,20 +19,20 @@ const (
 
 // ValidSites maps Datadog site hostnames to their region names.
 var ValidSites = map[string]string{
-	"datadoghq.com":    "US1 (default)",
+	"datadoghq.com":     "US1 (default)",
 	"us3.datadoghq.com": "US3",
 	"us5.datadoghq.com": "US5",
-	"datadoghq.eu":     "EU",
+	"datadoghq.eu":      "EU",
 	"ap1.datadoghq.com": "AP1",
 	"ap2.datadoghq.com": "AP2",
-	"ddog-gov.com":     "US1-FED (Government)",
+	"ddog-gov.com":      "US1-FED (Government)",
 }
 
 // Credentials holds Datadog API credentials.
 type Credentials struct {
-	APIKey  string
-	AppKey  string
-	Site    string
+	APIKey string
+	AppKey string
+	Site   string
 }
 
 // Profile represents a named credential profile in the config file.

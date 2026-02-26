@@ -369,9 +369,9 @@ func runLogsIndexes(cmd *cobra.Command, args []string) error {
 	}
 
 	type indexRow struct {
-		Name            string
+		Name             string
 		NumRetentionDays string
-		IsRateLimited   string
+		IsRateLimited    string
 	}
 
 	rows := make([]indexRow, 0, len(indexList))
@@ -387,9 +387,9 @@ func runLogsIndexes(cmd *cobra.Command, args []string) error {
 			rateLimited = "true"
 		}
 		rows = append(rows, indexRow{
-			Name:            name,
+			Name:             name,
 			NumRetentionDays: retention,
-			IsRateLimited:   rateLimited,
+			IsRateLimited:    rateLimited,
 		})
 	}
 

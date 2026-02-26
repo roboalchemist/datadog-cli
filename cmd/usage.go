@@ -94,11 +94,11 @@ func runUsageSummary(cmd *cobra.Command, args []string) error {
 	}
 
 	type usageRow struct {
-		Month          string
-		Hosts          string
-		Containers     string
-		CustomMetrics  string
-		Logs           string
+		Month         string
+		Hosts         string
+		Containers    string
+		CustomMetrics string
+		Logs          string
 	}
 
 	rows := make([]usageRow, 0, len(usageArr))
