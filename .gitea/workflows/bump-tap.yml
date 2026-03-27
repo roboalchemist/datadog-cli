@@ -9,37 +9,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Get tag version
+      - name: Get tag version and revision
         id: tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      - name: Compute SHA256
-        id: sha
         run: |
-          ARCHIVE_URL="https://gitea.roboalch.com/roboalchemist/datadog-cli/archive/refs/tags/${GITHUB_REF#refs/tags/}.tar.gz"
-          SHA=$(curl -sL "$ARCHIVE_URL" | sha256sum | cut -d' ' -f1)
-          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "REVISION=${GITHUB_SHA}" >> $GITHUB_OUTPUT
       - name: Update formula
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
           # Clone the tap
-          git clone https://gitea.roboalch.com/roboalchemist/homebrew-private.git tap
+          git clone https://ci:${TAP_TOKEN}@gitea.roboalch.com/roboalchemist/homebrew-private.git tap
           cd tap
-          # Update the formula
-          cat > Formula/datadog-cli.rb << 'FORMULA'
+          # Update the formula using git+ssh URL pattern (private repo, no tarball auth needed)
+          cat > Formula/datadog-cli.rb << FORMULA
           class DatadogCli < Formula
             desc "Read-only CLI for querying Datadog APIs"
             homepage "https://gitea.roboalch.com/roboalchemist/datadog-cli"
-            url "https://gitea.roboalch.com/roboalchemist/datadog-cli/archive/refs/tags/v${{ steps.tag.outputs.VERSION }}.tar.gz"
-            sha256 "${{ steps.sha.outputs.SHA256 }}"
+            url "ssh://git@gitea.roboalch.com:2222/roboalchemist/datadog-cli.git",
+                tag:      "${{ steps.tag.outputs.TAG }}",
+                revision: "${{ steps.tag.outputs.REVISION }}",
+                using:    :git
             license "MIT"
             depends_on "go" => :build
             def install
-              ldflags = "-s -w -X main.version=#{version}"
+              ldflags = "-s -w -X main.version=\#{version}"
               system "go", "build", *std_go_args(ldflags:)
             end
             test do
-              assert_match "datadog-cli version", shell_output("#{bin}/datadog-cli --version")
+              assert_match "datadog-cli version", shell_output("\#{bin}/datadog-cli --version")
             end
           end
           FORMULA
