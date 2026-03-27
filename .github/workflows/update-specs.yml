@@ -1,0 +1,51 @@
+name: Update Datadog OpenAPI Specs
+
+on:
+  schedule:
+    # Run weekly on Monday at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  update-specs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch latest OpenAPI specs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make update-specs
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet specs/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat specs/
+          fi
+
+      - name: Open PR if specs changed
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="chore/update-specs-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add specs/v1.yaml specs/v2.yaml
+          git commit -m "chore: update Datadog OpenAPI specs $(date +%Y-%m-%d)"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: update Datadog OpenAPI specs $(date +%Y-%m-%d)" \
+            --body "Automated weekly refresh of \`specs/v1.yaml\` and \`specs/v2.yaml\` from [DataDog/datadog-api-client-go](https://github.com/DataDog/datadog-api-client-go)." \
+            --base main \
+            --head "$BRANCH"
