@@ -13,6 +13,11 @@ import (
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
 
+// maxEventsPageSize is the maximum count accepted by the Datadog v1 events API.
+// The v1 events endpoint does not support cursor-based pagination; all results
+// within the time window are returned in a single response up to this limit.
+const maxEventsPageSize = 1000
+
 // ---- events command group ----
 
 var eventsCmd = &cobra.Command{
@@ -37,6 +42,7 @@ var (
 	eventsListPriority string
 	eventsListSources  string
 	eventsListTags     string
+	eventsListAll      bool
 )
 
 var eventsListCmd = &cobra.Command{
@@ -44,7 +50,10 @@ var eventsListCmd = &cobra.Command{
 	Short: "List events from the event stream",
 	Long: `List events from the Datadog event stream within a time range.
 
-Uses GET /api/v1/events. Time values are Unix seconds.`,
+Uses GET /api/v1/events. The v1 events endpoint returns all matching events in
+a single response (no cursor-based pagination). Results are capped at 1000 per
+the API limit. Use --all to request the maximum 1000 results; otherwise the
+count sent to the API is min(--limit, 1000).`,
 	Example: `  # List events from the last day
   datadog-cli events list --start 1d
 
@@ -52,7 +61,10 @@ Uses GET /api/v1/events. Time values are Unix seconds.`,
   datadog-cli events list --priority normal --sources "jenkins,github"
 
   # List events tagged for production as JSON
-  datadog-cli events list --tags "env:production" --json`,
+  datadog-cli events list --tags "env:production" --json
+
+  # Fetch up to 1000 events (API maximum)
+  datadog-cli events list --start 7d --all`,
 	RunE: runEventsList,
 }
 
@@ -70,9 +82,19 @@ func runEventsList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--end: %w", err)
 	}
 
+	// Determine how many results to request from the API.
+	// The v1 events API does not support cursor pagination; all matching events
+	// are returned in one shot up to the API cap of maxEventsPageSize (1000).
+	// --all overrides --limit and requests the full API maximum.
+	apiCount := flagLimit
+	if eventsListAll || apiCount <= 0 || apiCount > maxEventsPageSize {
+		apiCount = maxEventsPageSize
+	}
+
 	params := url.Values{}
 	params.Set("start", fmt.Sprintf("%d", startSecs))
 	params.Set("end", fmt.Sprintf("%d", endSecs))
+	params.Set("count", fmt.Sprintf("%d", apiCount))
 
 	if eventsListPriority != "" {
 		params.Set("priority", eventsListPriority)
@@ -104,8 +126,9 @@ func runEventsList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Apply limit
-	if flagLimit > 0 && len(eventsRaw) > flagLimit {
+	// Apply client-side limit when --all is not set (the API may return more
+	// than requested if it rounds up; also guard against unexpected responses).
+	if !eventsListAll && flagLimit > 0 && len(eventsRaw) > flagLimit {
 		eventsRaw = eventsRaw[:flagLimit]
 	}
 
@@ -300,6 +323,7 @@ func init() {
 	eventsListCmd.Flags().StringVar(&eventsListPriority, "priority", "", "Filter by priority (low, normal, all)")
 	eventsListCmd.Flags().StringVar(&eventsListSources, "sources", "", "Filter by source names (comma-separated)")
 	eventsListCmd.Flags().StringVar(&eventsListTags, "tags", "", "Filter by tags (comma-separated, e.g. 'env:production')")
+	eventsListCmd.Flags().BoolVar(&eventsListAll, "all", false, "Fetch up to the API maximum (1000 events); overrides --limit")
 
 	// Wire up subcommands
 	eventsCmd.AddCommand(eventsListCmd)

@@ -13,6 +13,9 @@ import (
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
 
+// maxNotebooksPageSize is the maximum count accepted by the Datadog notebooks v1 API.
+const maxNotebooksPageSize = 100
+
 // ---- notebooks command group ----
 
 var notebooksCmd = &cobra.Command{
@@ -30,6 +33,8 @@ var notebooksCmd = &cobra.Command{
 }
 
 // ---- notebooks list ----
+
+var notebooksListAll bool
 
 var notebooksListCmd = &cobra.Command{
 	Use:   "list",
@@ -49,32 +54,17 @@ func runNotebooksList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("count", fmt.Sprintf("%d", min(flagLimit, 100)))
-
-	respBytes, err := client.Get("/api/v1/notebooks", params)
-	if err != nil {
-		return err
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if notebooksListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	notebooksRaw, _ := raw["data"].([]interface{})
-	if len(notebooksRaw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No notebooks found.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(notebooksRaw) > flagLimit {
-		notebooksRaw = notebooksRaw[:flagLimit]
+	// First page size: min(effectiveLimit, maxNotebooksPageSize).
+	// If unlimited (--all), use max page size.
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxNotebooksPageSize {
+		firstPageSize = maxNotebooksPageSize
 	}
 
 	type notebookRow struct {
@@ -85,27 +75,110 @@ func runNotebooksList(cmd *cobra.Command, args []string) error {
 		Modified string
 	}
 
-	rows := make([]notebookRow, 0, len(notebooksRaw))
-	tableRows := make([][]string, 0, len(notebooksRaw))
+	var rows []notebookRow
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	start := 0
+	pageNum := 0
 
-	for _, item := range notebooksRaw {
-		nb, _ := item.(map[string]interface{})
-		attrs, _ := nb["attributes"].(map[string]interface{})
+	needsMorePages := func() bool {
+		if notebooksListAll {
+			return true // stop only when no more data
+		}
+		return len(rows) < effectiveLimit
+	}
 
-		id := formatID(nb["id"])
-		name := output.TruncateString(notebooksStringField(attrs, "name"), 45)
-		author := notebooksAuthor(attrs)
-		created := notebooksFormatTimestamp(attrs["created"])
-		modified := notebooksFormatTimestamp(attrs["modified"])
+	for needsMorePages() {
+		pageNum++
 
-		rows = append(rows, notebookRow{
-			ID:       id,
-			Name:     name,
-			Author:   author,
-			Created:  created,
-			Modified: modified,
-		})
-		tableRows = append(tableRows, []string{id, name, author, created, modified})
+		pageSize := firstPageSize
+		if !notebooksListAll {
+			remaining := effectiveLimit - len(rows)
+			if remaining < pageSize {
+				pageSize = remaining
+			}
+		}
+
+		params := url.Values{}
+		params.Set("count", fmt.Sprintf("%d", pageSize))
+		params.Set("start", fmt.Sprintf("%d", start))
+
+		if pageNum > 1 && !flagQuiet {
+			if notebooksListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d notebooks so far)...\n", pageNum, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+			}
+		}
+
+		respBytes, err := client.Get("/api/v1/notebooks", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		data, _ := raw["data"].([]interface{})
+		if len(data) == 0 {
+			break
+		}
+
+		for _, item := range data {
+			if !notebooksListAll && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			nb, _ := item.(map[string]interface{})
+			attrs, _ := nb["attributes"].(map[string]interface{})
+
+			id := formatID(nb["id"])
+			name := output.TruncateString(notebooksStringField(attrs, "name"), 45)
+			author := notebooksAuthor(attrs)
+			created := notebooksFormatTimestamp(attrs["created"])
+			modified := notebooksFormatTimestamp(attrs["modified"])
+
+			rows = append(rows, notebookRow{
+				ID:       id,
+				Name:     name,
+				Author:   author,
+				Created:  created,
+				Modified: modified,
+			})
+		}
+
+		start += len(data)
+
+		// If we got fewer items than the page size, we've reached the last page.
+		if len(data) < pageSize {
+			break
+		}
+	}
+
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if meta, ok := lastRaw["meta"]; ok {
+				merged["meta"] = meta
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No notebooks found.")
+		return nil
+	}
+
+	tableRows := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		tableRows = append(tableRows, []string{r.ID, r.Name, r.Author, r.Created, r.Modified})
 	}
 
 	cols := []output.ColumnConfig{
@@ -292,6 +365,9 @@ func notebooksFormatTimestamp(ts interface{}) string {
 // ---- init ----
 
 func init() {
+	// notebooks list flags
+	notebooksListCmd.Flags().BoolVar(&notebooksListAll, "all", false, "Fetch all pages until exhausted (overrides --limit)")
+
 	// Wire up subcommands
 	notebooksCmd.AddCommand(notebooksListCmd)
 	notebooksCmd.AddCommand(notebooksGetCmd)

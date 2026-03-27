@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +12,9 @@ import (
 
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
+
+// maxDowntimesPageSize is the maximum page[limit] accepted by the Datadog v2 downtimes API.
+const maxDowntimesPageSize = 100
 
 // ---- downtimes command group ----
 
@@ -30,14 +34,21 @@ var downtimesCmd = &cobra.Command{
 
 // ---- downtimes list ----
 
+var downtimesListAll bool
+
 var downtimesListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List downtimes",
 	Long: `List all downtimes (maintenance windows) from Datadog.
 
-Uses GET /api/v2/downtime.`,
-	Example: `  # List all active and scheduled downtimes
+Uses GET /api/v2/downtime with offset-based pagination (page[offset] / page[limit]).
+The API returns up to 100 items per page. Use --all to transparently fetch all pages,
+or --limit N to cap results (default 100).`,
+	Example: `  # List downtimes (up to --limit, default 100)
   datadog-cli downtimes list
+
+  # Fetch every downtime regardless of count
+  datadog-cli downtimes list --all
 
   # List downtimes in JSON format
   datadog-cli downtimes list --json`,
@@ -48,29 +59,17 @@ func runDowntimesList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	respBytes, err := client.Get("/api/v2/downtime", nil)
-	if err != nil {
-		return err
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if downtimesListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	downtimesRaw, _ := raw["data"].([]interface{})
-	if len(downtimesRaw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No downtimes found.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(downtimesRaw) > flagLimit {
-		downtimesRaw = downtimesRaw[:flagLimit]
+	// Page size: min(effectiveLimit, maxDowntimesPageSize).
+	// If unlimited (--all), use max page size.
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxDowntimesPageSize {
+		pageSize = maxDowntimesPageSize
 	}
 
 	type downtimeRow struct {
@@ -82,30 +81,114 @@ func runDowntimesList(cmd *cobra.Command, args []string) error {
 		Active  string
 	}
 
-	rows := make([]downtimeRow, 0, len(downtimesRaw))
-	tableRows := make([][]string, 0, len(downtimesRaw))
+	var rows []downtimeRow
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	offset := 0
+	pageNum := 0
 
-	for _, item := range downtimesRaw {
-		dt, _ := item.(map[string]interface{})
-		attrs, _ := dt["attributes"].(map[string]interface{})
+	for {
+		pageNum++
 
-		id := formatID(dt["id"])
-		scope := downtimesScope(attrs)
-		message := output.TruncateString(downtimesStringField(attrs, "message"), 35)
-		schedule, _ := attrs["schedule"].(map[string]interface{})
-		start := downtimesFormatTimestamp(schedule["start"])
-		end := downtimesFormatTimestamp(schedule["end"])
-		active := downtimesActive(attrs)
+		// Print progress to stderr on subsequent pages (unless --quiet).
+		if pageNum > 1 && !flagQuiet {
+			if downtimesListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d downtimes so far)...\n", pageNum, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+			}
+		}
 
-		rows = append(rows, downtimeRow{
-			ID:      id,
-			Scope:   scope,
-			Message: message,
-			Start:   start,
-			End:     end,
-			Active:  active,
-		})
-		tableRows = append(tableRows, []string{id, scope, message, start, end, active})
+		// Adjust page size for the last page when a limit is set.
+		thisPageSize := pageSize
+		if !downtimesListAll && effectiveLimit > 0 {
+			remaining := effectiveLimit - len(rows)
+			if remaining < thisPageSize {
+				thisPageSize = remaining
+			}
+		}
+
+		params := url.Values{}
+		params.Set("page[limit]", fmt.Sprintf("%d", thisPageSize))
+		params.Set("page[offset]", fmt.Sprintf("%d", offset))
+
+		respBytes, err := client.Get("/api/v2/downtime", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		data, _ := raw["data"].([]interface{})
+		if len(data) == 0 {
+			break
+		}
+
+		for _, item := range data {
+			if !downtimesListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			dt, _ := item.(map[string]interface{})
+			attrs, _ := dt["attributes"].(map[string]interface{})
+
+			id := formatID(dt["id"])
+			scope := downtimesScope(attrs)
+			message := output.TruncateString(downtimesStringField(attrs, "message"), 35)
+			schedule, _ := attrs["schedule"].(map[string]interface{})
+			start := downtimesFormatTimestamp(schedule["start"])
+			end := downtimesFormatTimestamp(schedule["end"])
+			active := downtimesActive(attrs)
+
+			rows = append(rows, downtimeRow{
+				ID:      id,
+				Scope:   scope,
+				Message: message,
+				Start:   start,
+				End:     end,
+				Active:  active,
+			})
+		}
+
+		// Stop if we have enough results.
+		if !downtimesListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+			break
+		}
+
+		// Stop if this page was smaller than the page size (last page).
+		if len(data) < thisPageSize {
+			break
+		}
+
+		offset += len(data)
+	}
+
+	if opts.JSON {
+		// Build a merged response combining all pages' data, keeping metadata from last response.
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No downtimes found.")
+		return nil
+	}
+
+	tableRows := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		tableRows = append(tableRows, []string{r.ID, r.Scope, r.Message, r.Start, r.End, r.Active})
 	}
 
 	cols := []output.ColumnConfig{
@@ -360,6 +443,9 @@ func downtimesFormatTimestamp(ts interface{}) string {
 // ---- init ----
 
 func init() {
+	// downtimes list flags
+	downtimesListCmd.Flags().BoolVar(&downtimesListAll, "all", false, "Fetch all pages until no results remain (overrides --limit)")
+
 	// Wire up subcommands
 	downtimesCmd.AddCommand(downtimesListCmd)
 	downtimesCmd.AddCommand(downtimesGetCmd)

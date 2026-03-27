@@ -34,6 +34,9 @@ Required scope: audit_logs_read`,
   datadog-cli audit search -q "@usr.email:admin@example.com"`,
 }
 
+// maxAuditPageSize is the maximum page limit accepted by the Datadog audit events search API.
+const maxAuditPageSize = 1000
+
 // ---- audit search ----
 
 var (
@@ -41,6 +44,7 @@ var (
 	auditSearchFrom  string
 	auditSearchTo    string
 	auditSearchSort  string
+	auditSearchAll   bool
 )
 
 var auditSearchCmd = &cobra.Command{
@@ -54,6 +58,9 @@ Uses POST /api/v2/audit/events/search. Timestamps are in milliseconds.`,
 
   # Search for actions by a specific user
   datadog-cli audit search -q "@usr.email:admin@example.com"
+
+  # Fetch all dashboard audit events across all pages
+  datadog-cli audit search -q "dashboard" --from 1d --all
 
   # Search for dashboard-related events as JSON
   datadog-cli audit search -q "dashboard" --from 1d --json`,
@@ -76,9 +83,16 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	pageSize := flagLimit
-	if pageSize > 1000 {
-		pageSize = 1000
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if auditSearchAll {
+		effectiveLimit = 0 // 0 = unlimited
+	}
+
+	// First page size: min(effectiveLimit, maxAuditPageSize).
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxAuditPageSize {
+		firstPageSize = maxAuditPageSize
 	}
 
 	reqBody := map[string]interface{}{
@@ -89,7 +103,7 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 		},
 		"sort": auditSearchSort,
 		"page": map[string]interface{}{
-			"limit": pageSize,
+			"limit": firstPageSize,
 		},
 	}
 
@@ -102,13 +116,41 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []auditRow
-	var lastRaw interface{}
+	var allData []interface{}
+	var lastRaw map[string]interface{}
 	cursor := ""
+	pageNum := 0
 
-	for len(rows) < flagLimit {
+	needsMorePages := func() bool {
+		if auditSearchAll {
+			return true // stop only when cursor is gone
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
 		if cursor != "" {
-			if page, ok := reqBody["page"].(map[string]interface{}); ok {
-				page["cursor"] = cursor
+			if pageMap, ok := reqBody["page"].(map[string]interface{}); ok {
+				pageMap["cursor"] = cursor
+				// Adjust page size for the last page when limit is set.
+				if !auditSearchAll {
+					remaining := effectiveLimit - len(rows)
+					ps := remaining
+					if ps > maxAuditPageSize {
+						ps = maxAuditPageSize
+					}
+					pageMap["limit"] = ps
+				}
+			}
+			// Print progress to stderr (unless --quiet).
+			if !flagQuiet {
+				if auditSearchAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d events so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
 			}
 		}
 
@@ -123,15 +165,13 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 		}
 		lastRaw = raw
 
-		if opts.JSON && cursor == "" {
-			return output.RenderJSON(raw, opts)
-		}
-
 		data, _ := raw["data"].([]interface{})
 		for _, item := range data {
-			if len(rows) >= flagLimit {
+			if !auditSearchAll && len(rows) >= effectiveLimit {
 				break
 			}
+			allData = append(allData, item)
+
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
 
@@ -184,7 +224,18 @@ func runAuditSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if opts.JSON {
-		return output.RenderJSON(lastRaw, opts)
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if links, ok := lastRaw["links"]; ok {
+				merged["links"] = links
+			}
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
 	}
 
 	if len(rows) == 0 {
@@ -216,6 +267,7 @@ func init() {
 	auditSearchCmd.Flags().StringVar(&auditSearchFrom, "from", "15m", "Start time (e.g. 15m, 1h, 2d, 1w, now, ISO-8601, unix)")
 	auditSearchCmd.Flags().StringVar(&auditSearchTo, "to", "now", "End time (e.g. now, ISO-8601, unix)")
 	auditSearchCmd.Flags().StringVar(&auditSearchSort, "sort", "-timestamp", "Sort order: 'timestamp' (asc) or '-timestamp' (desc)")
+	auditSearchCmd.Flags().BoolVar(&auditSearchAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 	_ = auditSearchCmd.MarkFlagRequired("query")
 
 	// Add subcommands to audit

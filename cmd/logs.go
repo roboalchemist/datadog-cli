@@ -15,6 +15,9 @@ import (
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
 
+// maxLogsPageSize is the maximum page[limit] accepted by the Datadog logs search API.
+const maxLogsPageSize = 1000
+
 // ---- logs command group ----
 
 var logsCmd = &cobra.Command{
@@ -39,6 +42,7 @@ var (
 	logsSearchTo      string
 	logsSearchSort    string
 	logsSearchIndexes []string
+	logsSearchAll     bool
 )
 
 var logsSearchCmd = &cobra.Command{
@@ -77,6 +81,19 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if logsSearchAll {
+		effectiveLimit = 0 // 0 = unlimited
+	}
+
+	// First page size: min(effectiveLimit, maxLogsPageSize).
+	// If unlimited (--all), use max page size.
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxLogsPageSize {
+		firstPageSize = maxLogsPageSize
+	}
+
 	// Build request body
 	filter := map[string]interface{}{
 		"query": logsSearchQuery,
@@ -87,20 +104,17 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 		filter["indexes"] = logsSearchIndexes
 	}
 
-	pageSize := flagLimit
-	if pageSize > 1000 {
-		pageSize = 1000
+	pageMap := map[string]interface{}{
+		"limit": firstPageSize,
 	}
 
 	reqBody := map[string]interface{}{
 		"filter": filter,
 		"sort":   logsSearchSort,
-		"page": map[string]interface{}{
-			"limit": pageSize,
-		},
+		"page":   pageMap,
 	}
 
-	// Paginate until we have enough results
+	// Table row struct
 	type logRow struct {
 		Timestamp string
 		Host      string
@@ -110,13 +124,41 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []logRow
-	var lastRaw interface{} // raw API response for JSON mode
+	// allData accumulates raw log items for JSON output across pages.
+	var allData []interface{}
+	// lastRaw holds the most recent raw response for metadata.
+	var lastRaw map[string]interface{}
 	cursor := ""
+	pageNum := 0
 
-	for len(rows) < flagLimit {
+	needsMorePages := func() bool {
+		if logsSearchAll {
+			return true // stop only when cursor is gone
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
 		if cursor != "" {
-			if page, ok := reqBody["page"].(map[string]interface{}); ok {
-				page["cursor"] = cursor
+			pageMap["cursor"] = cursor
+			// Adjust page size for the last page when limit is set.
+			if !logsSearchAll {
+				remaining := effectiveLimit - len(rows)
+				ps := remaining
+				if ps > maxLogsPageSize {
+					ps = maxLogsPageSize
+				}
+				pageMap["limit"] = ps
+			}
+			// Print progress to stderr (unless --quiet).
+			if !flagQuiet {
+				if logsSearchAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d logs so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
 			}
 		}
 
@@ -131,23 +173,24 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 		}
 		lastRaw = raw
 
-		if opts.JSON && cursor == "" {
-			// For JSON mode just render the first page and exit
-			return output.RenderJSON(raw, opts)
-		}
-
 		data, _ := raw["data"].([]interface{})
+
+		// Collect items for JSON output and table rows simultaneously.
 		for _, item := range data {
-			if len(rows) >= flagLimit {
+			if !logsSearchAll && len(rows) >= effectiveLimit {
 				break
 			}
+			allData = append(allData, item)
+
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
 
 			// Format timestamp
 			ts := ""
 			if tsRaw, ok := attrs["timestamp"].(string); ok && tsRaw != "" {
-				if t, err := time.Parse(time.RFC3339, tsRaw); err == nil {
+				if t, err := time.Parse(time.RFC3339Nano, tsRaw); err == nil {
+					ts = t.UTC().Format("2006-01-02 15:04:05")
+				} else if t, err := time.Parse(time.RFC3339, tsRaw); err == nil {
 					ts = t.UTC().Format("2006-01-02 15:04:05")
 				} else {
 					ts = tsRaw
@@ -174,7 +217,20 @@ func runLogsSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if opts.JSON {
-		return output.RenderJSON(lastRaw, opts)
+		// Build a merged response: combine all pages' data arrays, keep metadata
+		// from the last response so cursor/count reflects final state.
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if links, ok := lastRaw["links"]; ok {
+				merged["links"] = links
+			}
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
 	}
 
 	if len(rows) == 0 {
@@ -440,6 +496,7 @@ func init() {
 	logsSearchCmd.Flags().StringVar(&logsSearchTo, "to", "now", "End time (e.g. now, ISO-8601, unix)")
 	logsSearchCmd.Flags().StringVar(&logsSearchSort, "sort", "-timestamp", "Sort order: 'timestamp' (asc) or '-timestamp' (desc)")
 	logsSearchCmd.Flags().StringSliceVar(&logsSearchIndexes, "indexes", nil, "Log indexes to search (default: all)")
+	logsSearchCmd.Flags().BoolVar(&logsSearchAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 	_ = logsSearchCmd.MarkFlagRequired("query")
 
 	// logs aggregate flags

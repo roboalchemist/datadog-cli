@@ -147,9 +147,13 @@ func runUsageSummary(cmd *cobra.Command, args []string) error {
 
 // ---- usage top-metrics ----
 
+// maxTopMetricsPageSize is the maximum limit accepted by the top_avg_metrics API.
+const maxTopMetricsPageSize = 5000
+
 var (
 	usageTopMetricsMonth      string
 	usageTopMetricsMetricName string
+	usageTopMetricsAll        bool
 )
 
 var usageTopMetricsCmd = &cobra.Command{
@@ -157,9 +161,19 @@ var usageTopMetricsCmd = &cobra.Command{
 	Short: "Get top average custom metrics",
 	Long: `Get all custom metrics by hourly average for a given month.
 
-Uses GET /api/v1/usage/top_avg_metrics.`,
+Uses GET /api/v1/usage/top_avg_metrics. The API returns up to 5000 results
+per page and supports cursor-based pagination via next_record_id.
+
+By default, --limit (default 100) results are returned. Pass --all to
+paginate through all results automatically.`,
 	Example: `  # Get top custom metrics for January 2024
   datadog-cli usage top-metrics --month 2024-01
+
+  # Get up to 500 metrics
+  datadog-cli usage top-metrics --month 2024-01 --limit 500
+
+  # Fetch all metrics across all pages
+  datadog-cli usage top-metrics --month 2024-01 --all
 
   # Filter top metrics by name
   datadog-cli usage top-metrics --month 2024-01 --metric-name "my.metric"
@@ -173,46 +187,35 @@ func runUsageTopMetrics(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
+	// Effective limit: 0 means unlimited (--all).
+	effectiveLimit := flagLimit
+	if usageTopMetricsAll {
+		effectiveLimit = 0
+	}
+
+	// Determine API page size: min(effectiveLimit, maxTopMetricsPageSize).
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxTopMetricsPageSize {
+		pageSize = maxTopMetricsPageSize
+	}
+
+	baseParams := url.Values{}
 
 	if usageTopMetricsMonth != "" {
 		if _, err := time.Parse("2006-01", usageTopMetricsMonth); err != nil {
 			return fmt.Errorf("--month %q: use YYYY-MM format (e.g. 2024-01)", usageTopMetricsMonth)
 		}
-		params.Set("month", usageTopMetricsMonth)
+		baseParams.Set("month", usageTopMetricsMonth)
 	} else {
 		// Default to current month
-		params.Set("month", time.Now().Format("2006-01"))
+		baseParams.Set("month", time.Now().Format("2006-01"))
 	}
 
 	if usageTopMetricsMetricName != "" {
-		params.Set("names[]", usageTopMetricsMetricName)
+		baseParams.Set("names[]", usageTopMetricsMetricName)
 	}
 
-	respBytes, err := client.Get("/api/v1/usage/top_avg_metrics", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	usageArr, _ := raw["usage"].([]interface{})
-
-	if len(usageArr) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No top metrics data found.")
-		return nil
-	}
-
-	if flagLimit > 0 && len(usageArr) > flagLimit {
-		usageArr = usageArr[:flagLimit]
-	}
+	baseParams.Set("limit", fmt.Sprintf("%d", pageSize))
 
 	type metricRow struct {
 		Metric   string
@@ -220,17 +223,87 @@ func runUsageTopMetrics(cmd *cobra.Command, args []string) error {
 		MaxCount string
 	}
 
-	rows := make([]metricRow, 0, len(usageArr))
-	tableRows := make([][]string, 0, len(usageArr))
+	var rows []metricRow
+	var tableRows [][]string
+	var lastRaw map[string]interface{}
+	nextRecordID := ""
+	pageNum := 0
 
-	for _, item := range usageArr {
-		m, _ := item.(map[string]interface{})
-		metricName := output.TruncateString(usageStringField(m, "metric_name"), 60)
-		avgCount := usageFormatFloat(m["avg_metric_hour"])
-		maxCount := usageFormatFloat(m["max_metric_hour"])
+	for {
+		pageNum++
 
-		rows = append(rows, metricRow{Metric: metricName, AvgCount: avgCount, MaxCount: maxCount})
-		tableRows = append(tableRows, []string{metricName, avgCount, maxCount})
+		params := url.Values{}
+		for k, v := range baseParams {
+			params[k] = v
+		}
+
+		if nextRecordID != "" {
+			params.Set("next_record_id", nextRecordID)
+
+			// Adjust page size for last page when limit is set.
+			if effectiveLimit > 0 {
+				remaining := effectiveLimit - len(rows)
+				ps := remaining
+				if ps > maxTopMetricsPageSize {
+					ps = maxTopMetricsPageSize
+				}
+				params.Set("limit", fmt.Sprintf("%d", ps))
+			}
+
+			if !flagQuiet {
+				if usageTopMetricsAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d metrics so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
+			}
+		}
+
+		respBytes, err := client.Get("/api/v1/usage/top_avg_metrics", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		usageArr, _ := raw["usage"].([]interface{})
+		for _, item := range usageArr {
+			if effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			m, _ := item.(map[string]interface{})
+			metricName := output.TruncateString(usageStringField(m, "metric_name"), 60)
+			avgCount := usageFormatFloat(m["avg_metric_hour"])
+			maxCount := usageFormatFloat(m["max_metric_hour"])
+
+			rows = append(rows, metricRow{Metric: metricName, AvgCount: avgCount, MaxCount: maxCount})
+			tableRows = append(tableRows, []string{metricName, avgCount, maxCount})
+		}
+
+		// Check for next page cursor.
+		metadata, _ := raw["metadata"].(map[string]interface{})
+		nextRecordID, _ = metadata["next_record_id"].(string)
+
+		// Stop if: no more pages, or we've hit the desired limit.
+		if nextRecordID == "" {
+			break
+		}
+		if effectiveLimit > 0 && len(rows) >= effectiveLimit {
+			break
+		}
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(lastRaw, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No top metrics data found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -294,6 +367,7 @@ func init() {
 
 	usageTopMetricsCmd.Flags().StringVar(&usageTopMetricsMonth, "month", "", "Month in YYYY-MM format (default: current month)")
 	usageTopMetricsCmd.Flags().StringVar(&usageTopMetricsMetricName, "metric-name", "", "Filter by metric name")
+	usageTopMetricsCmd.Flags().BoolVar(&usageTopMetricsAll, "all", false, "Fetch all results across all pages (ignores --limit)")
 
 	usageCmd.AddCommand(usageSummaryCmd)
 	usageCmd.AddCommand(usageTopMetricsCmd)

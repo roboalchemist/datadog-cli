@@ -28,6 +28,9 @@ var hostsCmd = &cobra.Command{
   datadog-cli hosts totals`,
 }
 
+// maxHostsPageSize is the maximum count accepted by the Datadog hosts list API.
+const maxHostsPageSize = 1000
+
 // ---- hosts list ----
 
 var (
@@ -36,6 +39,7 @@ var (
 	hostsListSortDir   string
 	hostsListCount     int
 	hostsListStart     int
+	hostsListAll       bool
 )
 
 var hostsListCmd = &cobra.Command{
@@ -43,9 +47,13 @@ var hostsListCmd = &cobra.Command{
 	Short: "List infrastructure hosts",
 	Long: `List infrastructure hosts from Datadog.
 
-Uses GET /api/v1/hosts.`,
+Uses GET /api/v1/hosts with automatic offset-based pagination.
+The API count cap is 1000 per page; use --all to fetch every host.`,
 	Example: `  # List all hosts
   datadog-cli hosts list
+
+  # Fetch every host regardless of count
+  datadog-cli hosts list --all
 
   # Filter hosts by environment tag
   datadog-cli hosts list --filter "env:production"
@@ -59,50 +67,26 @@ func runHostsList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
+	if hostsListSortDir != "" && hostsListSortDir != "asc" && hostsListSortDir != "desc" {
+		return fmt.Errorf("--sort-dir must be 'asc' or 'desc', got %q", hostsListSortDir)
+	}
 
-	if hostsListFilter != "" {
-		params.Set("filter", hostsListFilter)
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if hostsListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
-	if hostsListSortField != "" {
-		params.Set("sort_field", hostsListSortField)
-	}
-	if hostsListSortDir != "" {
-		if hostsListSortDir != "asc" && hostsListSortDir != "desc" {
-			return fmt.Errorf("--sort-dir must be 'asc' or 'desc', got %q", hostsListSortDir)
-		}
-		params.Set("sort_dir", hostsListSortDir)
-	}
+	// --count overrides --limit for page size (legacy flag kept for compatibility).
 	if hostsListCount > 0 {
-		params.Set("count", fmt.Sprintf("%d", hostsListCount))
-	} else {
-		params.Set("count", fmt.Sprintf("%d", flagLimit))
-	}
-	if hostsListStart > 0 {
-		params.Set("start", fmt.Sprintf("%d", hostsListStart))
+		if !hostsListAll {
+			effectiveLimit = hostsListCount
+		}
 	}
 
-	// Include metadata so we get platform/CPU cores
-	params.Set("include_hosts_metadata", "true")
-
-	respBytes, err := client.Get("/api/v1/hosts", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	hostList, _ := raw["host_list"].([]interface{})
-	if len(hostList) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No hosts found.")
-		return nil
+	// Page size is min(effectiveLimit, maxHostsPageSize); if unlimited use max.
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxHostsPageSize {
+		pageSize = maxHostsPageSize
 	}
 
 	type hostRow struct {
@@ -114,68 +98,125 @@ func runHostsList(cmd *cobra.Command, args []string) error {
 		LastReported string
 	}
 
-	rows := make([]hostRow, 0, len(hostList))
-	for _, item := range hostList {
-		host, _ := item.(map[string]interface{})
+	var rows []hostRow
+	var allHostList []interface{}
+	// Start offset: honour --start for the first page (manual offset override).
+	start := hostsListStart
+	pageNum := 0
 
-		name := stringField(host, "name")
-		if name == "" {
-			name = stringField(host, "host_name")
+	for {
+		params := url.Values{}
+		params.Set("count", fmt.Sprintf("%d", pageSize))
+		params.Set("start", fmt.Sprintf("%d", start))
+		params.Set("include_hosts_metadata", "true")
+
+		if hostsListFilter != "" {
+			params.Set("filter", hostsListFilter)
+		}
+		if hostsListSortField != "" {
+			params.Set("sort_field", hostsListSortField)
+		}
+		if hostsListSortDir != "" {
+			params.Set("sort_dir", hostsListSortDir)
 		}
 
-		// Up status
-		upStr := "unknown"
-		if isUp, ok := host["up"].(bool); ok {
-			if isUp {
-				upStr = "UP"
+		if pageNum > 0 && !flagQuiet {
+			if hostsListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (start=%d, %d hosts so far)...\n", pageNum+1, start, len(rows))
 			} else {
-				upStr = "DOWN"
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (start=%d, %d/%d)...\n", pageNum+1, start, len(rows), effectiveLimit)
 			}
 		}
 
-		// Last reported time
-		lastReported := ""
-		if lr, ok := host["last_reported_time"]; ok {
-			lastReported = hostsFormatTimestamp(lr)
+		respBytes, err := client.Get("/api/v1/hosts", params)
+		if err != nil {
+			return err
 		}
 
-		// OS and platform from meta
-		osName := ""
-		platform := ""
-		cpuCores := ""
-		if meta, ok := host["meta"].(map[string]interface{}); ok {
-			// Extract OS name from gohai JSON blob (platform.os field)
-			if gohaiStr := stringField(meta, "gohai"); gohaiStr != "" {
-				var gohai map[string]interface{}
-				if err := json.Unmarshal([]byte(gohaiStr), &gohai); err == nil {
-					if platformMap, ok := gohai["platform"].(map[string]interface{}); ok {
-						osName = stringField(platformMap, "os")
-					}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+
+		hostList, _ := raw["host_list"].([]interface{})
+
+		for _, item := range hostList {
+			if !hostsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allHostList = append(allHostList, item)
+			host, _ := item.(map[string]interface{})
+
+			name := stringField(host, "name")
+			if name == "" {
+				name = stringField(host, "host_name")
+			}
+
+			upStr := "unknown"
+			if isUp, ok := host["up"].(bool); ok {
+				if isUp {
+					upStr = "UP"
+				} else {
+					upStr = "DOWN"
 				}
 			}
-			// Fall back to meta.platform (e.g. "linux") if gohai parse failed
+
+			lastReported := ""
+			if lr, ok := host["last_reported_time"]; ok {
+				lastReported = hostsFormatTimestamp(lr)
+			}
+
+			osName := ""
+			platform := ""
+			cpuCores := ""
+			if meta, ok := host["meta"].(map[string]interface{}); ok {
+				if gohaiStr := stringField(meta, "gohai"); gohaiStr != "" {
+					var gohai map[string]interface{}
+					if err := json.Unmarshal([]byte(gohaiStr), &gohai); err == nil {
+						if platformMap, ok := gohai["platform"].(map[string]interface{}); ok {
+							osName = stringField(platformMap, "os")
+						}
+					}
+				}
+				if osName == "" {
+					osName = stringField(meta, "platform")
+				}
+				platform = stringField(meta, "platform")
+				if v, ok := meta["cpuCores"]; ok {
+					cpuCores = fmt.Sprintf("%v", v)
+				}
+			}
 			if osName == "" {
-				osName = stringField(meta, "platform")
+				osName = stringField(host, "os")
 			}
-			platform = stringField(meta, "platform")
-			if v, ok := meta["cpuCores"]; ok {
-				cpuCores = fmt.Sprintf("%v", v)
-			}
+
+			rows = append(rows, hostRow{
+				HostName:     name,
+				OS:           osName,
+				Platform:     platform,
+				CPUCores:     cpuCores,
+				Up:           upStr,
+				LastReported: lastReported,
+			})
 		}
 
-		// Fall back to top-level os field
-		if osName == "" {
-			osName = stringField(host, "os")
+		// Stop if we have enough, the page was short (last page), or empty.
+		if (!hostsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit) ||
+			len(hostList) < pageSize || len(hostList) == 0 {
+			break
 		}
 
-		rows = append(rows, hostRow{
-			HostName:     name,
-			OS:           osName,
-			Platform:     platform,
-			CPUCores:     cpuCores,
-			Up:           upStr,
-			LastReported: lastReported,
-		})
+		start += len(hostList)
+		pageNum++
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(allHostList, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No hosts found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -282,8 +323,9 @@ func init() {
 	hostsListCmd.Flags().StringVar(&hostsListFilter, "filter", "", "Filter hosts by name, alias, or tag (e.g. 'env:production')")
 	hostsListCmd.Flags().StringVar(&hostsListSortField, "sort-field", "", "Field to sort by (e.g. 'cpu', 'name')")
 	hostsListCmd.Flags().StringVar(&hostsListSortDir, "sort-dir", "", "Sort direction: 'asc' or 'desc'")
-	hostsListCmd.Flags().IntVar(&hostsListCount, "count", 0, "Number of hosts to return (default: --limit value)")
-	hostsListCmd.Flags().IntVar(&hostsListStart, "start", 0, "Starting offset for pagination")
+	hostsListCmd.Flags().IntVar(&hostsListCount, "count", 0, "Number of hosts to return per page (default: --limit value, max 1000)")
+	hostsListCmd.Flags().IntVar(&hostsListStart, "start", 0, "Starting offset for first page")
+	hostsListCmd.Flags().BoolVar(&hostsListAll, "all", false, "Fetch all pages until no more hosts remain (overrides --limit)")
 
 	// Wire up subcommands
 	hostsCmd.AddCommand(hostsListCmd)

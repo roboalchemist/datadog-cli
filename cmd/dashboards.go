@@ -29,16 +29,25 @@ var dashboardsCmd = &cobra.Command{
   datadog-cli dashboards search -q "system"`,
 }
 
+// maxDashboardsPageSize is the maximum count accepted by the Datadog dashboards list API.
+const maxDashboardsPageSize = 100
+
 // ---- dashboards list ----
+
+var dashboardsListAll bool
 
 var dashboardsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List dashboards",
 	Long: `List all dashboards from Datadog.
 
-Uses GET /api/v1/dashboard.`,
+Uses GET /api/v1/dashboard with automatic offset-based pagination.
+The API default page size is 100; use --all to fetch every dashboard.`,
 	Example: `  # List all dashboards
   datadog-cli dashboards list
+
+  # Fetch every dashboard regardless of count
+  datadog-cli dashboards list --all
 
   # List dashboards in JSON format
   datadog-cli dashboards list --json`,
@@ -49,29 +58,16 @@ func runDashboardsList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	respBytes, err := client.Get("/api/v1/dashboard", nil)
-	if err != nil {
-		return err
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if dashboardsListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	dashboardsRaw, _ := raw["dashboards"].([]interface{})
-	if len(dashboardsRaw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No dashboards found.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(dashboardsRaw) > flagLimit {
-		dashboardsRaw = dashboardsRaw[:flagLimit]
+	// Page size is min(effectiveLimit, maxDashboardsPageSize); if unlimited use max.
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxDashboardsPageSize {
+		pageSize = maxDashboardsPageSize
 	}
 
 	type dashboardRow struct {
@@ -82,26 +78,78 @@ func runDashboardsList(cmd *cobra.Command, args []string) error {
 		Created string
 	}
 
-	rows := make([]dashboardRow, 0, len(dashboardsRaw))
-	tableRows := make([][]string, 0, len(dashboardsRaw))
+	var rows []dashboardRow
+	var allDashboards []interface{}
+	start := 0
+	pageNum := 0
 
-	for _, item := range dashboardsRaw {
-		d, _ := item.(map[string]interface{})
-		id := dashboardStringField(d, "id")
-		title := output.TruncateString(dashboardStringField(d, "title"), 45)
-		author := dashboardStringField(d, "author_handle")
-		author = truncateEmail(author, 25)
-		rawURL := dashboardStringField(d, "url")
-		created := dashboardsFormatTimestamp(d["created_at"])
+	for {
+		params := url.Values{}
+		params.Set("count", fmt.Sprintf("%d", pageSize))
+		params.Set("start", fmt.Sprintf("%d", start))
 
-		rows = append(rows, dashboardRow{
-			ID:      id,
-			Title:   title,
-			Author:  author,
-			URL:     rawURL,
-			Created: created,
-		})
-		tableRows = append(tableRows, []string{id, title, author, rawURL, created})
+		if pageNum > 0 && !flagQuiet {
+			if dashboardsListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (start=%d, %d dashboards so far)...\n", pageNum+1, start, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (start=%d, %d/%d)...\n", pageNum+1, start, len(rows), effectiveLimit)
+			}
+		}
+
+		respBytes, err := client.Get("/api/v1/dashboard", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+
+		page, _ := raw["dashboards"].([]interface{})
+
+		for _, item := range page {
+			if !dashboardsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allDashboards = append(allDashboards, item)
+			d, _ := item.(map[string]interface{})
+			id := dashboardStringField(d, "id")
+			title := output.TruncateString(dashboardStringField(d, "title"), 45)
+			author := truncateEmail(dashboardStringField(d, "author_handle"), 25)
+			rawURL := dashboardStringField(d, "url")
+			created := dashboardsFormatTimestamp(d["created_at"])
+			rows = append(rows, dashboardRow{
+				ID:      id,
+				Title:   title,
+				Author:  author,
+				URL:     rawURL,
+				Created: created,
+			})
+		}
+
+		// Stop when we have enough, page was short (last page), or page was empty.
+		if (!dashboardsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit) ||
+			len(page) < pageSize || len(page) == 0 {
+			break
+		}
+
+		start += len(page)
+		pageNum++
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(allDashboards, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No dashboards found.")
+		return nil
+	}
+
+	tableRows := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		tableRows = append(tableRows, []string{r.ID, r.Title, r.Author, r.URL, r.Created})
 	}
 
 	cols := []output.ColumnConfig{
@@ -243,19 +291,32 @@ func runDashboardsSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
+	// Fetch all pages so the search covers the full dashboard set.
+	var dashboardsRaw []interface{}
+	start := 0
+	for {
+		params := url.Values{}
+		params.Set("count", fmt.Sprintf("%d", maxDashboardsPageSize))
+		params.Set("start", fmt.Sprintf("%d", start))
 
-	respBytes, err := client.Get("/api/v1/dashboard", params)
-	if err != nil {
-		return err
+		respBytes, err := client.Get("/api/v1/dashboard", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+
+		page, _ := raw["dashboards"].([]interface{})
+		dashboardsRaw = append(dashboardsRaw, page...)
+
+		if len(page) < maxDashboardsPageSize || len(page) == 0 {
+			break
+		}
+		start += len(page)
 	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	dashboardsRaw, _ := raw["dashboards"].([]interface{})
 
 	// Client-side filter by title substring
 	queryLower := strings.ToLower(dashboardsSearchQuery)
@@ -381,6 +442,9 @@ func truncateEmail(email string, maxLen int) string {
 // ---- init ----
 
 func init() {
+	// dashboards list flags
+	dashboardsListCmd.Flags().BoolVar(&dashboardsListAll, "all", false, "Fetch all pages until no more dashboards remain (overrides --limit)")
+
 	// dashboards search flags
 	dashboardsSearchCmd.Flags().StringVarP(&dashboardsSearchQuery, "query", "q", "", "Search filter (required)")
 

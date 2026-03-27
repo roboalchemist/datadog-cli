@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
+
+// maxAPMPageSize is the maximum page[size] accepted by the Datadog service definitions API.
+const maxAPMPageSize = 100
 
 // ---- apm command group ----
 
@@ -30,6 +34,8 @@ var apmCmd = &cobra.Command{
 
 // ---- apm services ----
 
+var apmServicesAll bool
+
 var apmServicesCmd = &cobra.Command{
 	Use:   "services",
 	Short: "List APM services",
@@ -38,6 +44,9 @@ var apmServicesCmd = &cobra.Command{
 Uses GET /api/v2/services/definitions.`,
 	Example: `  # List all APM services
   datadog-cli apm services
+
+  # Fetch all APM services across all pages
+  datadog-cli apm services --all
 
   # List services in JSON format
   datadog-cli apm services --json`,
@@ -48,33 +57,15 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{
-		"page[size]": {"100"},
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if apmServicesAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	respBytes, err := client.Get("/api/v2/services/definitions", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	data, _ := raw["data"].([]interface{})
-	if len(data) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No APM services found.")
-		return nil
-	}
-
-	// Apply --limit
-	if flagLimit > 0 && len(data) > flagLimit {
-		data = data[:flagLimit]
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxAPMPageSize {
+		firstPageSize = maxAPMPageSize
 	}
 
 	type serviceRow struct {
@@ -85,26 +76,107 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []serviceRow
-	for _, item := range data {
-		entry, _ := item.(map[string]interface{})
-		attrs, _ := entry["attributes"].(map[string]interface{})
-		schema, _ := attrs["schema"].(map[string]interface{})
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	cursor := ""
+	pageNum := 0
 
-		name := apmExtractServiceName(schema)
-		team := apmStringField(schema, "team")
-		tags := apmFormatList(apmStringSlice(schema, "tags"))
-		// schema type/kind
-		svcType := apmStringField(schema, "type")
-		if svcType == "" {
-			svcType = apmStringField(schema, "kind")
+	needsMorePages := func() bool {
+		if apmServicesAll {
+			return true
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
+		pageSize := firstPageSize
+		if cursor != "" && !apmServicesAll {
+			remaining := effectiveLimit - len(rows)
+			if remaining < pageSize {
+				pageSize = remaining
+			}
 		}
 
-		rows = append(rows, serviceRow{
-			Name: name,
-			Type: svcType,
-			Team: team,
-			Tags: tags,
-		})
+		params := url.Values{
+			"page[size]": {strconv.Itoa(pageSize)},
+		}
+		if cursor != "" {
+			params.Set("page[cursor]", cursor)
+			if !flagQuiet {
+				if apmServicesAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d services so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
+			}
+		}
+
+		respBytes, err := client.Get("/api/v2/services/definitions", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		data, _ := raw["data"].([]interface{})
+		for _, item := range data {
+			if !apmServicesAll && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			entry, _ := item.(map[string]interface{})
+			attrs, _ := entry["attributes"].(map[string]interface{})
+			schema, _ := attrs["schema"].(map[string]interface{})
+
+			name := apmExtractServiceName(schema)
+			team := apmStringField(schema, "team")
+			tags := apmFormatList(apmStringSlice(schema, "tags"))
+			// schema type/kind
+			svcType := apmStringField(schema, "type")
+			if svcType == "" {
+				svcType = apmStringField(schema, "kind")
+			}
+
+			rows = append(rows, serviceRow{
+				Name: name,
+				Type: svcType,
+				Team: team,
+				Tags: tags,
+			})
+		}
+
+		// Check for next page cursor
+		meta, _ := raw["meta"].(map[string]interface{})
+		page, _ := meta["page"].(map[string]interface{})
+		nextCursor, _ := page["cursor"].(string)
+		if nextCursor == "" || len(data) == 0 {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No APM services found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -124,6 +196,8 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 
 // ---- apm definitions ----
 
+var apmDefinitionsAll bool
+
 var apmDefinitionsCmd = &cobra.Command{
 	Use:   "definitions",
 	Short: "List service catalog definitions",
@@ -132,6 +206,9 @@ var apmDefinitionsCmd = &cobra.Command{
 Uses GET /api/v2/services/definitions.`,
 	Example: `  # List all service catalog definitions
   datadog-cli apm definitions
+
+  # Fetch all definitions across all pages
+  datadog-cli apm definitions --all
 
   # List definitions in JSON format
   datadog-cli apm definitions --json`,
@@ -142,33 +219,15 @@ func runAPMDefinitions(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	pageSize := flagLimit
-	if pageSize > 100 {
-		pageSize = 100
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if apmDefinitionsAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	params := url.Values{
-		"page[size]": {fmt.Sprintf("%d", pageSize)},
-	}
-
-	respBytes, err := client.Get("/api/v2/services/definitions", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	data, _ := raw["data"].([]interface{})
-	if len(data) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No service definitions found.")
-		return nil
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxAPMPageSize {
+		firstPageSize = maxAPMPageSize
 	}
 
 	type defRow struct {
@@ -180,25 +239,106 @@ func runAPMDefinitions(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []defRow
-	for _, item := range data {
-		entry, _ := item.(map[string]interface{})
-		attrs, _ := entry["attributes"].(map[string]interface{})
-		schema, _ := attrs["schema"].(map[string]interface{})
-		meta, _ := attrs["meta"].(map[string]interface{})
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	cursor := ""
+	pageNum := 0
 
-		name := apmExtractServiceName(schema)
-		schemaVersion := apmStringField(meta, "schema-version")
-		team := apmStringField(schema, "team")
-		tags := apmFormatList(apmStringSlice(schema, "tags"))
-		contacts := apmExtractContacts(schema)
+	needsMorePages := func() bool {
+		if apmDefinitionsAll {
+			return true
+		}
+		return len(rows) < effectiveLimit
+	}
 
-		rows = append(rows, defRow{
-			Name:     name,
-			Schema:   schemaVersion,
-			Team:     team,
-			Contacts: contacts,
-			Tags:     tags,
-		})
+	for needsMorePages() {
+		pageNum++
+
+		pageSize := firstPageSize
+		if cursor != "" && !apmDefinitionsAll {
+			remaining := effectiveLimit - len(rows)
+			if remaining < pageSize {
+				pageSize = remaining
+			}
+		}
+
+		params := url.Values{
+			"page[size]": {strconv.Itoa(pageSize)},
+		}
+		if cursor != "" {
+			params.Set("page[cursor]", cursor)
+			if !flagQuiet {
+				if apmDefinitionsAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d definitions so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
+			}
+		}
+
+		respBytes, err := client.Get("/api/v2/services/definitions", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		data, _ := raw["data"].([]interface{})
+		for _, item := range data {
+			if !apmDefinitionsAll && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			entry, _ := item.(map[string]interface{})
+			attrs, _ := entry["attributes"].(map[string]interface{})
+			schema, _ := attrs["schema"].(map[string]interface{})
+			meta, _ := attrs["meta"].(map[string]interface{})
+
+			name := apmExtractServiceName(schema)
+			schemaVersion := apmStringField(meta, "schema-version")
+			team := apmStringField(schema, "team")
+			tags := apmFormatList(apmStringSlice(schema, "tags"))
+			contacts := apmExtractContacts(schema)
+
+			rows = append(rows, defRow{
+				Name:     name,
+				Schema:   schemaVersion,
+				Team:     team,
+				Contacts: contacts,
+				Tags:     tags,
+			})
+		}
+
+		// Check for next page cursor
+		meta, _ := raw["meta"].(map[string]interface{})
+		page, _ := meta["page"].(map[string]interface{})
+		nextCursor, _ := page["cursor"].(string)
+		if nextCursor == "" || len(data) == 0 {
+			break
+		}
+		cursor = nextCursor
+	}
+
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No service definitions found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -425,6 +565,12 @@ func init() {
 		c.Flags().StringVar(&apmDepsService, "service", "", "Filter by service name")
 		_ = c.MarkFlagRequired("env")
 	}
+
+	// apm services flags
+	apmServicesCmd.Flags().BoolVar(&apmServicesAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
+
+	// apm definitions flags
+	apmDefinitionsCmd.Flags().BoolVar(&apmDefinitionsAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 
 	// Wire up subcommands
 	apmCmd.AddCommand(apmServicesCmd)

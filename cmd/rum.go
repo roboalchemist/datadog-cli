@@ -29,6 +29,9 @@ from frontend applications instrumented with Datadog RUM.`,
   datadog-cli rum aggregate -q "*" --group-by @type --compute count`,
 }
 
+// maxRumPageSize is the maximum page limit accepted by the Datadog RUM search API.
+const maxRumPageSize = 1000
+
 // ---- rum search ----
 
 var (
@@ -36,6 +39,7 @@ var (
 	rumSearchFrom  string
 	rumSearchTo    string
 	rumSearchSort  string
+	rumSearchAll   bool
 )
 
 var rumSearchCmd = &cobra.Command{
@@ -49,6 +53,9 @@ Uses POST /api/v2/rum/events/search. Timestamps are in milliseconds.`,
 
   # Search for RUM errors in the last hour
   datadog-cli rum search -q "@type:error" --from 1h --to now
+
+  # Fetch all RUM errors from the last day across all pages
+  datadog-cli rum search -q "@type:error" --from 1d --all
 
   # Search for 403 errors from the last day as JSON
   datadog-cli rum search -q "@error.message:*403*" --from 1d --json`,
@@ -71,9 +78,16 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	pageSize := flagLimit
-	if pageSize > 1000 {
-		pageSize = 1000
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if rumSearchAll {
+		effectiveLimit = 0 // 0 = unlimited
+	}
+
+	// First page size: min(effectiveLimit, maxRumPageSize).
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxRumPageSize {
+		firstPageSize = maxRumPageSize
 	}
 
 	reqBody := map[string]interface{}{
@@ -84,7 +98,7 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 		},
 		"sort": rumSearchSort,
 		"page": map[string]interface{}{
-			"limit": pageSize,
+			"limit": firstPageSize,
 		},
 	}
 
@@ -97,13 +111,41 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []rumRow
-	var lastRaw interface{}
+	var allData []interface{}
+	var lastRaw map[string]interface{}
 	cursor := ""
+	pageNum := 0
 
-	for len(rows) < flagLimit {
+	needsMorePages := func() bool {
+		if rumSearchAll {
+			return true // stop only when cursor is gone
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
 		if cursor != "" {
-			if page, ok := reqBody["page"].(map[string]interface{}); ok {
-				page["cursor"] = cursor
+			if pageMap, ok := reqBody["page"].(map[string]interface{}); ok {
+				pageMap["cursor"] = cursor
+				// Adjust page size for the last page when limit is set.
+				if !rumSearchAll {
+					remaining := effectiveLimit - len(rows)
+					ps := remaining
+					if ps > maxRumPageSize {
+						ps = maxRumPageSize
+					}
+					pageMap["limit"] = ps
+				}
+			}
+			// Print progress to stderr (unless --quiet).
+			if !flagQuiet {
+				if rumSearchAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d events so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
 			}
 		}
 
@@ -118,15 +160,13 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 		}
 		lastRaw = raw
 
-		if opts.JSON && cursor == "" {
-			return output.RenderJSON(raw, opts)
-		}
-
 		data, _ := raw["data"].([]interface{})
 		for _, item := range data {
-			if len(rows) >= flagLimit {
+			if !rumSearchAll && len(rows) >= effectiveLimit {
 				break
 			}
+			allData = append(allData, item)
+
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
 			// RUM v2 double-nests: entry.attributes.attributes contains app/type/action/view
@@ -185,7 +225,18 @@ func runRumSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if opts.JSON {
-		return output.RenderJSON(lastRaw, opts)
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if links, ok := lastRaw["links"]; ok {
+				merged["links"] = links
+			}
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
 	}
 
 	if len(rows) == 0 {
@@ -359,6 +410,7 @@ func init() {
 	rumSearchCmd.Flags().StringVar(&rumSearchFrom, "from", "15m", "Start time (e.g. 15m, 1h, 2d, 1w, now, ISO-8601, unix)")
 	rumSearchCmd.Flags().StringVar(&rumSearchTo, "to", "now", "End time (e.g. now, ISO-8601, unix)")
 	rumSearchCmd.Flags().StringVar(&rumSearchSort, "sort", "-timestamp", "Sort order: 'timestamp' (asc) or '-timestamp' (desc)")
+	rumSearchCmd.Flags().BoolVar(&rumSearchAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 	_ = rumSearchCmd.MarkFlagRequired("query")
 
 	// rum aggregate flags

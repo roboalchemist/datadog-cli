@@ -30,11 +30,15 @@ var slosCmd = &cobra.Command{
   datadog-cli slos history abc123def456 --from 30d`,
 }
 
+// maxSLOsPageSize is the maximum limit accepted by the Datadog SLO list API.
+const maxSLOsPageSize = 1000
+
 // ---- slos list ----
 
 var (
 	slosListIDs      string
 	slosListTagQuery string
+	slosListAll      bool
 )
 
 var slosListCmd = &cobra.Command{
@@ -42,9 +46,12 @@ var slosListCmd = &cobra.Command{
 	Short: "List SLOs",
 	Long: `List SLOs from Datadog.
 
-Uses GET /api/v1/slo.`,
+Uses GET /api/v1/slo with offset-based pagination.`,
 	Example: `  # List all SLOs
   datadog-cli slos list
+
+  # Fetch every SLO in the account
+  datadog-cli slos list --all
 
   # Filter SLOs by tag
   datadog-cli slos list --tags-query "env:production"
@@ -58,39 +65,17 @@ func runSLOsList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("limit", fmt.Sprintf("%d", flagLimit))
-
-	if slosListIDs != "" {
-		params.Set("ids", slosListIDs)
-	}
-	if slosListTagQuery != "" {
-		params.Set("tags_query", slosListTagQuery)
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if slosListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	respBytes, err := client.Get("/api/v1/slo", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	dataRaw, _ := raw["data"].([]interface{})
-
-	if len(dataRaw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No SLOs found.")
-		return nil
-	}
-
-	if flagLimit > 0 && len(dataRaw) > flagLimit {
-		dataRaw = dataRaw[:flagLimit]
+	// First page size: min(effectiveLimit, maxSLOsPageSize).
+	// If unlimited (--all), use max page size.
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxSLOsPageSize {
+		pageSize = maxSLOsPageSize
 	}
 
 	type sloRow struct {
@@ -101,19 +86,123 @@ func runSLOsList(cmd *cobra.Command, args []string) error {
 		Status string
 	}
 
-	rows := make([]sloRow, 0, len(dataRaw))
-	tableRows := make([][]string, 0, len(dataRaw))
+	var rows []sloRow
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	offset := 0
+	pageNum := 0
 
-	for _, item := range dataRaw {
-		s, _ := item.(map[string]interface{})
-		id := slosStringField(s, "id")
-		name := output.TruncateString(slosStringField(s, "name"), 40)
-		sloType := slosStringField(s, "type")
-		target := slosExtractTarget(s)
-		status := slosExtractStatus(s)
+	for {
+		pageNum++
 
-		rows = append(rows, sloRow{ID: id, Name: name, Type: sloType, Target: target, Status: status})
-		tableRows = append(tableRows, []string{id, name, sloType, target, status})
+		// Progress output on pages after the first.
+		if pageNum > 1 && !flagQuiet {
+			if slosListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d SLOs so far)...\n", pageNum, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+			}
+		}
+
+		// Adjust page size for the last partial page when limit is set.
+		fetchSize := pageSize
+		if !slosListAll && effectiveLimit > 0 {
+			remaining := effectiveLimit - len(rows)
+			if remaining <= 0 {
+				break
+			}
+			if remaining < fetchSize {
+				fetchSize = remaining
+			}
+		}
+
+		params := url.Values{}
+		params.Set("limit", fmt.Sprintf("%d", fetchSize))
+		params.Set("offset", fmt.Sprintf("%d", offset))
+
+		if slosListIDs != "" {
+			params.Set("ids", slosListIDs)
+		}
+		if slosListTagQuery != "" {
+			params.Set("tags_query", slosListTagQuery)
+		}
+
+		respBytes, err := client.Get("/api/v1/slo", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		pageData, _ := raw["data"].([]interface{})
+		if len(pageData) == 0 {
+			break
+		}
+
+		for _, item := range pageData {
+			if !slosListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			s, _ := item.(map[string]interface{})
+			id := slosStringField(s, "id")
+			name := output.TruncateString(slosStringField(s, "name"), 40)
+			sloType := slosStringField(s, "type")
+			target := slosExtractTarget(s)
+			status := slosExtractStatus(s)
+			rows = append(rows, sloRow{ID: id, Name: name, Type: sloType, Target: target, Status: status})
+		}
+
+		// Check if there are more pages via metadata.pagination.total_count.
+		totalCount := -1
+		if meta, ok := raw["metadata"].(map[string]interface{}); ok {
+			if pg, ok := meta["pagination"].(map[string]interface{}); ok {
+				if tc, ok := pg["total_count"].(float64); ok {
+					totalCount = int(tc)
+				}
+			}
+		}
+
+		offset += len(pageData)
+
+		// Stop if we've fetched everything or reached the effective limit.
+		if !slosListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+			break
+		}
+		if totalCount >= 0 && offset >= totalCount {
+			break
+		}
+		if len(pageData) < fetchSize {
+			// Received fewer items than requested — no more pages.
+			break
+		}
+	}
+
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if meta, ok := lastRaw["metadata"]; ok {
+				merged["metadata"] = meta
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No SLOs found.")
+		return nil
+	}
+
+	tableRows := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		tableRows = append(tableRows, []string{r.ID, r.Name, r.Type, r.Target, r.Status})
 	}
 
 	cols := []output.ColumnConfig{
@@ -438,6 +527,7 @@ func slosParseTimeSecs(s string, defaultVal, now int64) (int64, error) {
 func init() {
 	slosListCmd.Flags().StringVar(&slosListIDs, "ids", "", "Comma-separated list of SLO IDs to filter")
 	slosListCmd.Flags().StringVar(&slosListTagQuery, "tags-query", "", "Filter by tags (e.g. 'env:production')")
+	slosListCmd.Flags().BoolVar(&slosListAll, "all", false, "Fetch all pages until no more results (overrides --limit)")
 
 	slosHistoryCmd.Flags().StringVar(&slosHistoryFrom, "from", "7d", "Start of history window (e.g. '7d', '30d', or Unix seconds)")
 	slosHistoryCmd.Flags().StringVar(&slosHistoryTo, "to", "now", "End of history window ('now' or Unix seconds)")

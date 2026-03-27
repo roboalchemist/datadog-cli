@@ -13,6 +13,9 @@ import (
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
 
+// maxIncidentsPageSize is the maximum page[size] accepted by the Datadog incidents API.
+const maxIncidentsPageSize = 100
+
 // ---- incidents command group ----
 
 var incidentsCmd = &cobra.Command{
@@ -30,6 +33,8 @@ var incidentsCmd = &cobra.Command{
 }
 
 // ---- incidents list ----
+
+var incidentsListAll bool
 
 var incidentsListCmd = &cobra.Command{
 	Use:   "list",
@@ -49,32 +54,17 @@ func runIncidentsList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("page[size]", fmt.Sprintf("%d", min(flagLimit, 100)))
-
-	respBytes, err := client.Get("/api/v2/incidents", params)
-	if err != nil {
-		return err
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if incidentsListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	incidentsRaw, _ := raw["data"].([]interface{})
-	if len(incidentsRaw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No incidents found.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(incidentsRaw) > flagLimit {
-		incidentsRaw = incidentsRaw[:flagLimit]
+	// First page size: min(effectiveLimit, maxIncidentsPageSize).
+	// If unlimited (--all), use max page size.
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxIncidentsPageSize {
+		firstPageSize = maxIncidentsPageSize
 	}
 
 	type incidentRow struct {
@@ -85,27 +75,110 @@ func runIncidentsList(cmd *cobra.Command, args []string) error {
 		Created  string
 	}
 
-	rows := make([]incidentRow, 0, len(incidentsRaw))
-	tableRows := make([][]string, 0, len(incidentsRaw))
+	var rows []incidentRow
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	offset := 0
+	pageNum := 0
 
-	for _, item := range incidentsRaw {
-		inc, _ := item.(map[string]interface{})
-		attrs, _ := inc["attributes"].(map[string]interface{})
+	needsMorePages := func() bool {
+		if incidentsListAll {
+			return true // stop only when no more data
+		}
+		return len(rows) < effectiveLimit
+	}
 
-		id := incidentsPublicID(inc, attrs)
-		title := output.TruncateString(incidentsStringField(attrs, "title"), 45)
-		severity := incidentsSeverity(attrs)
-		status := incidentsStatus(attrs)
-		created := incidentsFormatTimestamp(attrs["created"])
+	for needsMorePages() {
+		pageNum++
 
-		rows = append(rows, incidentRow{
-			ID:       id,
-			Title:    title,
-			Severity: severity,
-			Status:   status,
-			Created:  created,
-		})
-		tableRows = append(tableRows, []string{id, title, severity, status, created})
+		pageSize := firstPageSize
+		if !incidentsListAll {
+			remaining := effectiveLimit - len(rows)
+			if remaining < pageSize {
+				pageSize = remaining
+			}
+		}
+
+		params := url.Values{}
+		params.Set("page[size]", fmt.Sprintf("%d", pageSize))
+		params.Set("page[offset]", fmt.Sprintf("%d", offset))
+
+		if pageNum > 1 && !flagQuiet {
+			if incidentsListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d incidents so far)...\n", pageNum, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+			}
+		}
+
+		respBytes, err := client.Get("/api/v2/incidents", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		data, _ := raw["data"].([]interface{})
+		if len(data) == 0 {
+			break
+		}
+
+		for _, item := range data {
+			if !incidentsListAll && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			inc, _ := item.(map[string]interface{})
+			attrs, _ := inc["attributes"].(map[string]interface{})
+
+			id := incidentsPublicID(inc, attrs)
+			title := output.TruncateString(incidentsStringField(attrs, "title"), 45)
+			severity := incidentsSeverity(attrs)
+			status := incidentsStatus(attrs)
+			created := incidentsFormatTimestamp(attrs["created"])
+
+			rows = append(rows, incidentRow{
+				ID:       id,
+				Title:    title,
+				Severity: severity,
+				Status:   status,
+				Created:  created,
+			})
+		}
+
+		offset += len(data)
+
+		// If we got fewer items than the page size, we've reached the last page.
+		if len(data) < pageSize {
+			break
+		}
+	}
+
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if meta, ok := lastRaw["meta"]; ok {
+				merged["meta"] = meta
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No incidents found.")
+		return nil
+	}
+
+	tableRows := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		tableRows = append(tableRows, []string{r.ID, r.Title, r.Severity, r.Status, r.Created})
 	}
 
 	cols := []output.ColumnConfig{
@@ -328,6 +401,9 @@ func incidentsFormatTimestamp(ts interface{}) string {
 // ---- init ----
 
 func init() {
+	// incidents list flags
+	incidentsListCmd.Flags().BoolVar(&incidentsListAll, "all", false, "Fetch all pages until exhausted (overrides --limit)")
+
 	// Wire up subcommands
 	incidentsCmd.AddCommand(incidentsListCmd)
 	incidentsCmd.AddCommand(incidentsGetCmd)

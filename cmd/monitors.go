@@ -29,12 +29,16 @@ var monitorsCmd = &cobra.Command{
   datadog-cli monitors search -q "cpu"`,
 }
 
+// maxMonitorsPageSize is the maximum page_size accepted by the Datadog monitors list API.
+const maxMonitorsPageSize = 100
+
 // ---- monitors list ----
 
 var (
 	monitorsListGroupStates string
 	monitorsListName        string
 	monitorsListTags        string
+	monitorsListAll         bool
 )
 
 var monitorsListCmd = &cobra.Command{
@@ -42,9 +46,13 @@ var monitorsListCmd = &cobra.Command{
 	Short: "List monitors",
 	Long: `List monitors from Datadog.
 
-Uses GET /api/v1/monitor.`,
+Uses GET /api/v1/monitor with automatic pagination.
+The API page_size cap is 100; use --all to fetch every monitor.`,
 	Example: `  # List all monitors
   datadog-cli monitors list
+
+  # Fetch every monitor regardless of count
+  datadog-cli monitors list --all
 
   # Filter monitors by tag
   datadog-cli monitors list --tags "env:production"
@@ -58,42 +66,16 @@ func runMonitorsList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("page_size", fmt.Sprintf("%d", flagLimit))
-
-	if monitorsListGroupStates != "" {
-		params.Set("group_states", monitorsListGroupStates)
-	}
-	if monitorsListName != "" {
-		params.Set("name", monitorsListName)
-	}
-	if monitorsListTags != "" {
-		params.Set("monitor_tags", monitorsListTags)
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if monitorsListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	respBytes, err := client.Get("/api/v1/monitor", params)
-	if err != nil {
-		return err
-	}
-
-	// The monitors list API returns a JSON array directly
-	var raw []interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	if len(raw) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No monitors found.")
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(raw) > flagLimit {
-		raw = raw[:flagLimit]
+	// Page size is min(effectiveLimit, maxMonitorsPageSize); if unlimited use max.
+	pageSize := effectiveLimit
+	if pageSize == 0 || pageSize > maxMonitorsPageSize {
+		pageSize = maxMonitorsPageSize
 	}
 
 	type monitorRow struct {
@@ -104,31 +86,88 @@ func runMonitorsList(cmd *cobra.Command, args []string) error {
 		Creator string
 	}
 
-	rows := make([]monitorRow, 0, len(raw))
-	tableRows := make([][]string, 0, len(raw))
+	var rows []monitorRow
+	var tableRows [][]string
+	var allData []interface{}
+	pageNum := 0 // Datadog monitors list uses 0-indexed page numbers
 
-	for _, item := range raw {
-		m, _ := item.(map[string]interface{})
-		id := formatID(m["id"])
-		name := output.TruncateString(monitorStringField(m, "name"), 45)
-		mtype := monitorStringField(m, "type")
-		status := monitorStringField(m, "overall_state")
-		creator := ""
-		if creatorMap, ok := m["creator"].(map[string]interface{}); ok {
-			creator = monitorStringField(creatorMap, "email")
-			if creator == "" {
-				creator = monitorStringField(creatorMap, "handle")
+	for {
+		params := url.Values{}
+		params.Set("page_size", fmt.Sprintf("%d", pageSize))
+		params.Set("page", fmt.Sprintf("%d", pageNum))
+
+		if monitorsListGroupStates != "" {
+			params.Set("group_states", monitorsListGroupStates)
+		}
+		if monitorsListName != "" {
+			params.Set("name", monitorsListName)
+		}
+		if monitorsListTags != "" {
+			params.Set("monitor_tags", monitorsListTags)
+		}
+
+		if pageNum > 0 && !flagQuiet {
+			if monitorsListAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d monitors so far)...\n", pageNum+1, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum+1, len(rows), effectiveLimit)
 			}
 		}
 
-		rows = append(rows, monitorRow{
-			ID:      id,
-			Name:    name,
-			Type:    mtype,
-			Status:  status,
-			Creator: creator,
-		})
-		tableRows = append(tableRows, []string{id, name, mtype, output.ColorStatus(status), creator})
+		respBytes, err := client.Get("/api/v1/monitor", params)
+		if err != nil {
+			return err
+		}
+
+		// The monitors list API returns a JSON array directly
+		var page []interface{}
+		if err := json.Unmarshal(respBytes, &page); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+
+		for _, item := range page {
+			if !monitorsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+			m, _ := item.(map[string]interface{})
+			id := formatID(m["id"])
+			name := output.TruncateString(monitorStringField(m, "name"), 45)
+			mtype := monitorStringField(m, "type")
+			status := monitorStringField(m, "overall_state")
+			creator := ""
+			if creatorMap, ok := m["creator"].(map[string]interface{}); ok {
+				creator = monitorStringField(creatorMap, "email")
+				if creator == "" {
+					creator = monitorStringField(creatorMap, "handle")
+				}
+			}
+			rows = append(rows, monitorRow{
+				ID:      id,
+				Name:    name,
+				Type:    mtype,
+				Status:  status,
+				Creator: creator,
+			})
+			tableRows = append(tableRows, []string{id, name, mtype, output.ColorStatus(status), creator})
+		}
+
+		// Stop if we have enough, the page was short (last page), or empty.
+		if (!monitorsListAll && effectiveLimit > 0 && len(rows) >= effectiveLimit) ||
+			len(page) < pageSize || len(page) == 0 {
+			break
+		}
+
+		pageNum++
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(allData, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No monitors found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -276,21 +315,28 @@ func runMonitorsGet(cmd *cobra.Command, args []string) error {
 	return output.RenderTable(cols, tableRows, rows, opts)
 }
 
+// maxMonitorsSearchPageSize is the maximum per_page accepted by the monitors search API.
+const maxMonitorsSearchPageSize = 100
+
 // ---- monitors search ----
 
-var monitorsSearchQuery string
+var (
+	monitorsSearchQuery string
+	monitorsSearchAll   bool
+)
 
 var monitorsSearchCmd = &cobra.Command{
 	Use:   "search",
 	Short: "Search monitors by query",
 	Long: `Search monitors by name, tags, or query string.
 
-Uses GET /api/v1/monitor/search.`,
+Uses GET /api/v1/monitor/search with automatic pagination.
+The API per_page cap is 100; use --all to fetch every matching monitor.`,
 	Example: `  # Search for CPU-related monitors
   datadog-cli monitors search --query "cpu"
 
-  # Search for monitors in production environment
-  datadog-cli monitors search -q "env:production"
+  # Fetch all matching monitors regardless of count
+  datadog-cli monitors search -q "env:production" --all
 
   # Search for disk monitors and output as JSON
   datadog-cli monitors search --query "disk" --json`,
@@ -305,35 +351,16 @@ func runMonitorsSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("query", monitorsSearchQuery)
-	params.Set("per_page", fmt.Sprintf("%d", flagLimit))
-
-	respBytes, err := client.Get("/api/v1/monitor/search", params)
-	if err != nil {
-		return err
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if monitorsSearchAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	// Response shape: {"monitors": [...], "metadata": {...}}
-	monitorsRaw, _ := raw["monitors"].([]interface{})
-
-	if len(monitorsRaw) == 0 {
-		_, _ = fmt.Fprintf(os.Stdout, "No monitors found matching %q.\n", monitorsSearchQuery)
-		return nil
-	}
-
-	// Apply limit
-	if flagLimit > 0 && len(monitorsRaw) > flagLimit {
-		monitorsRaw = monitorsRaw[:flagLimit]
+	// Page size is min(effectiveLimit, maxMonitorsSearchPageSize); if unlimited use max.
+	perPage := effectiveLimit
+	if perPage == 0 || perPage > maxMonitorsSearchPageSize {
+		perPage = maxMonitorsSearchPageSize
 	}
 
 	type monitorRow struct {
@@ -343,26 +370,87 @@ func runMonitorsSearch(cmd *cobra.Command, args []string) error {
 		Status string
 	}
 
-	rows := make([]monitorRow, 0, len(monitorsRaw))
-	tableRows := make([][]string, 0, len(monitorsRaw))
+	var rows []monitorRow
+	var tableRows [][]string
+	var allMonitors []interface{}
+	var lastRaw map[string]interface{}
+	pageNum := 0 // 0-indexed
 
-	for _, item := range monitorsRaw {
-		m, _ := item.(map[string]interface{})
-		id := formatID(m["id"])
-		name := output.TruncateString(monitorStringField(m, "name"), 45)
-		mtype := monitorStringField(m, "type")
-		status := monitorStringField(m, "status")
-		if status == "" {
-			status = monitorStringField(m, "overall_state")
+	for {
+		params := url.Values{}
+		params.Set("query", monitorsSearchQuery)
+		params.Set("per_page", fmt.Sprintf("%d", perPage))
+		params.Set("page", fmt.Sprintf("%d", pageNum))
+
+		if pageNum > 0 && !flagQuiet {
+			if monitorsSearchAll {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d monitors so far)...\n", pageNum+1, len(rows))
+			} else {
+				_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum+1, len(rows), effectiveLimit)
+			}
 		}
 
-		rows = append(rows, monitorRow{
-			ID:     id,
-			Name:   name,
-			Type:   mtype,
-			Status: status,
-		})
-		tableRows = append(tableRows, []string{id, name, mtype, output.ColorStatus(status)})
+		respBytes, err := client.Get("/api/v1/monitor/search", params)
+		if err != nil {
+			return err
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		// Response shape: {"monitors": [...], "metadata": {...}}
+		monitorsRaw, _ := raw["monitors"].([]interface{})
+
+		for _, item := range monitorsRaw {
+			if !monitorsSearchAll && effectiveLimit > 0 && len(rows) >= effectiveLimit {
+				break
+			}
+			allMonitors = append(allMonitors, item)
+			m, _ := item.(map[string]interface{})
+			id := formatID(m["id"])
+			name := output.TruncateString(monitorStringField(m, "name"), 45)
+			mtype := monitorStringField(m, "type")
+			status := monitorStringField(m, "status")
+			if status == "" {
+				status = monitorStringField(m, "overall_state")
+			}
+			rows = append(rows, monitorRow{
+				ID:     id,
+				Name:   name,
+				Type:   mtype,
+				Status: status,
+			})
+			tableRows = append(tableRows, []string{id, name, mtype, output.ColorStatus(status)})
+		}
+
+		// Stop if we have enough, the page was short (last page), or empty.
+		if (!monitorsSearchAll && effectiveLimit > 0 && len(rows) >= effectiveLimit) ||
+			len(monitorsRaw) < perPage || len(monitorsRaw) == 0 {
+			break
+		}
+
+		pageNum++
+	}
+
+	if opts.JSON {
+		// Return merged response with all monitors but metadata from the last page.
+		merged := map[string]interface{}{
+			"monitors": allMonitors,
+		}
+		if lastRaw != nil {
+			if meta, ok := lastRaw["metadata"]; ok {
+				merged["metadata"] = meta
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintf(os.Stdout, "No monitors found matching %q.\n", monitorsSearchQuery)
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -427,9 +515,11 @@ func init() {
 	monitorsListCmd.Flags().StringVar(&monitorsListGroupStates, "group-states", "", "Filter by group states (comma-separated, e.g. 'alert,warn')")
 	monitorsListCmd.Flags().StringVar(&monitorsListName, "name", "", "Filter by monitor name (substring match)")
 	monitorsListCmd.Flags().StringVar(&monitorsListTags, "tags", "", "Filter by tags (comma-separated, e.g. 'env:prod,team:backend')")
+	monitorsListCmd.Flags().BoolVar(&monitorsListAll, "all", false, "Fetch all pages until no more monitors remain (overrides --limit)")
 
 	// monitors search flags
 	monitorsSearchCmd.Flags().StringVarP(&monitorsSearchQuery, "query", "q", "", "Search query (required)")
+	monitorsSearchCmd.Flags().BoolVar(&monitorsSearchAll, "all", false, "Fetch all pages until no more monitors remain (overrides --limit)")
 
 	// Wire up subcommands
 	monitorsCmd.AddCommand(monitorsListCmd)

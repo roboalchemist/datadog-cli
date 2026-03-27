@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/output"
 )
+
+// maxProcessesPageSize is the maximum page[limit] accepted by the Datadog v2 processes API.
+const maxProcessesPageSize = 1000
 
 // ---- processes command group ----
 
@@ -32,6 +36,7 @@ across your infrastructure.`,
 var (
 	processesListSearch string
 	processesListHost   string
+	processesListAll    bool
 )
 
 var processesListCmd = &cobra.Command{
@@ -46,6 +51,9 @@ Uses GET /api/v2/processes.`,
   # Search for Python processes
   datadog-cli processes list --search "python"
 
+  # Fetch all Python processes across all pages
+  datadog-cli processes list --search "python" --all
+
   # Search for nginx processes on a specific host and output as JSON
   datadog-cli processes list --search "nginx" --host "web-server-01" --json`,
 	RunE: runProcessesList,
@@ -55,35 +63,16 @@ func runProcessesList(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	params := url.Values{}
-	params.Set("page[limit]", fmt.Sprintf("%d", flagLimit))
-
-	if processesListSearch != "" {
-		params.Set("search", processesListSearch)
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if processesListAll {
+		effectiveLimit = 0 // 0 = unlimited
 	}
 
-	if processesListHost != "" {
-		params.Set("tags", "host:"+processesListHost)
-	}
-
-	respBytes, err := client.Get("/api/v2/processes", params)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	processesList, _ := raw["data"].([]interface{})
-	if len(processesList) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No processes found.")
-		return nil
+	// First page size: min(effectiveLimit, maxProcessesPageSize).
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxProcessesPageSize {
+		firstPageSize = maxProcessesPageSize
 	}
 
 	type processRow struct {
@@ -95,53 +84,141 @@ func runProcessesList(cmd *cobra.Command, args []string) error {
 		Host   string
 	}
 
-	rows := make([]processRow, 0, len(processesList))
-	for _, item := range processesList {
-		process, _ := item.(map[string]interface{})
-		attrs, _ := process["attributes"].(map[string]interface{})
-		if attrs == nil {
-			attrs = process
+	var rows []processRow
+	var allData []interface{}
+	var lastRaw map[string]interface{}
+	cursor := ""
+	pageNum := 0
+
+	needsMorePages := func() bool {
+		if processesListAll {
+			return true // stop only when cursor is gone
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
+		pageSize := firstPageSize
+		if cursor != "" && !processesListAll {
+			remaining := effectiveLimit - len(rows)
+			if remaining < pageSize {
+				pageSize = remaining
+			}
 		}
 
-		// PID
-		pid := ""
-		if pidVal, ok := attrs["pid"]; ok && pidVal != nil {
-			pid = fmt.Sprintf("%v", pidVal)
+		params := url.Values{}
+		params.Set("page[limit]", strconv.Itoa(pageSize))
+		if cursor != "" {
+			params.Set("page[cursor]", cursor)
+			// Print progress to stderr (unless --quiet).
+			if !flagQuiet {
+				if processesListAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d processes so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
+			}
 		}
 
-		// Name — extract from cmdline if no dedicated name field
-		name := stringFieldFromMap(attrs, "name")
-		if name == "" {
-			cmdline := stringFieldFromMap(attrs, "cmdline")
-			name = output.TruncateString(cmdline, 30)
+		if processesListSearch != "" {
+			params.Set("search", processesListSearch)
+		}
+		if processesListHost != "" {
+			params.Set("tags", "host:"+processesListHost)
 		}
 
-		// User
-		user := stringFieldFromMap(attrs, "user")
-
-		// CPU percentage
-		cpu := ""
-		if cpuVal, ok := attrs["pctCpu"]; ok && cpuVal != nil {
-			cpu = fmt.Sprintf("%.1f", toFloat64(cpuVal))
+		respBytes, err := client.Get("/api/v2/processes", params)
+		if err != nil {
+			return err
 		}
 
-		// Memory percentage
-		mem := ""
-		if memVal, ok := attrs["pctMem"]; ok && memVal != nil {
-			mem = fmt.Sprintf("%.1f", toFloat64(memVal))
+		var raw map[string]interface{}
+		if err := json.Unmarshal(respBytes, &raw); err != nil {
+			return fmt.Errorf("parsing response: %w", err)
+		}
+		lastRaw = raw
+
+		processesList, _ := raw["data"].([]interface{})
+		for _, item := range processesList {
+			if !processesListAll && len(rows) >= effectiveLimit {
+				break
+			}
+			allData = append(allData, item)
+
+			process, _ := item.(map[string]interface{})
+			attrs, _ := process["attributes"].(map[string]interface{})
+			if attrs == nil {
+				attrs = process
+			}
+
+			// PID
+			pid := ""
+			if pidVal, ok := attrs["pid"]; ok && pidVal != nil {
+				pid = fmt.Sprintf("%v", pidVal)
+			}
+
+			// Name — extract from cmdline if no dedicated name field
+			name := stringFieldFromMap(attrs, "name")
+			if name == "" {
+				cmdline := stringFieldFromMap(attrs, "cmdline")
+				name = output.TruncateString(cmdline, 30)
+			}
+
+			// User
+			user := stringFieldFromMap(attrs, "user")
+
+			// CPU percentage
+			cpu := ""
+			if cpuVal, ok := attrs["pctCpu"]; ok && cpuVal != nil {
+				cpu = fmt.Sprintf("%.1f", toFloat64(cpuVal))
+			}
+
+			// Memory percentage
+			mem := ""
+			if memVal, ok := attrs["pctMem"]; ok && memVal != nil {
+				mem = fmt.Sprintf("%.1f", toFloat64(memVal))
+			}
+
+			// Host
+			host := stringFieldFromMap(attrs, "host")
+
+			rows = append(rows, processRow{
+				PID:    pid,
+				Name:   output.TruncateString(name, 30),
+				User:   output.TruncateString(user, 15),
+				CPU:    cpu,
+				Memory: mem,
+				Host:   output.TruncateString(host, 30),
+			})
 		}
 
-		// Host
-		host := stringFieldFromMap(attrs, "host")
+		// Check for next page cursor
+		meta, _ := raw["meta"].(map[string]interface{})
+		page, _ := meta["page"].(map[string]interface{})
+		nextCursor, _ := page["after"].(string)
+		if nextCursor == "" || len(processesList) == 0 {
+			break
+		}
+		cursor = nextCursor
+	}
 
-		rows = append(rows, processRow{
-			PID:    pid,
-			Name:   output.TruncateString(name, 30),
-			User:   output.TruncateString(user, 15),
-			CPU:    cpu,
-			Memory: mem,
-			Host:   output.TruncateString(host, 30),
-		})
+	if opts.JSON {
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
+	}
+
+	if len(rows) == 0 {
+		_, _ = fmt.Fprintln(os.Stdout, "No processes found.")
+		return nil
 	}
 
 	cols := []output.ColumnConfig{
@@ -185,6 +262,7 @@ func init() {
 	// processes list flags
 	processesListCmd.Flags().StringVar(&processesListSearch, "search", "", "Search by process name or command line")
 	processesListCmd.Flags().StringVar(&processesListHost, "host", "", "Filter by host name")
+	processesListCmd.Flags().BoolVar(&processesListAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 
 	// Add subcommands to processes
 	processesCmd.AddCommand(processesListCmd)
