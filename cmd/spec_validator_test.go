@@ -40,10 +40,14 @@ func TestMain(m *testing.M) {
 	} else {
 		// Use a relative server URL so kin-openapi matches any host in tests.
 		v1.Servers = openapi3.Servers{{URL: "/"}}
-		// DisableExamplesValidation skips example-value validation in the spec
-		// itself — some Datadog spec examples have format errors that would
-		// prevent the router from building.  Request parameter validation
-		// (the thing we actually want) is unaffected.
+		// DisableExamplesValidation skips validation of the .example fields
+		// embedded in the spec itself.  Two known quality issues in the Datadog
+		// spec examples prevent the router from building without this flag:
+		//   v1: Dashboard.oneOf example matches more than one branch
+		//   v2: ArbitraryRuleResponse date-time example doesn't match its own format regex
+		// These are minor issues in illustrative example values only — the actual
+		// parameter and response schemas we validate against are correct.
+		// Request parameter validation (the thing we actually want) is unaffected.
 		if r, err := legacy.NewRouter(v1, openapi3.DisableExamplesValidation()); err == nil {
 			specV1Router = r
 		} else {
@@ -58,6 +62,7 @@ func TestMain(m *testing.M) {
 		_, _ = os.Stderr.WriteString("spec_validator: WARNING: failed to load v2 spec: " + err.Error() + "\n")
 	} else {
 		v2.Servers = openapi3.Servers{{URL: "/"}}
+		// DisableExamplesValidation — see v1 comment above for rationale.
 		if r, err := legacy.NewRouter(v2, openapi3.DisableExamplesValidation()); err == nil {
 			specV2Router = r
 		} else {
