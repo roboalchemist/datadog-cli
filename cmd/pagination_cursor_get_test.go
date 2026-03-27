@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -60,6 +61,23 @@ func mustParseJSONArr(t *testing.T, s string) []interface{} {
 		t.Fatalf("output is not valid JSON array: %v\nOutput:\n%s", err, s)
 	}
 	return result
+}
+
+// discardStdout redirects os.Stdout to /dev/null while running f().
+// Unlike captureStdout, writing to /dev/null never blocks, so this is safe
+// for commands that produce large output (e.g. > 64 KB, which would fill the
+// os.Pipe kernel buffer used by captureStdout).
+func discardStdout(t *testing.T, f func()) {
+	t.Helper()
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open /dev/null: %v", err)
+	}
+	defer devNull.Close()
+	orig := os.Stdout
+	os.Stdout = devNull
+	defer func() { os.Stdout = orig }()
+	f()
 }
 
 // ---- item builders ----------------------------------------------------------
@@ -541,84 +559,47 @@ func TestPaginationAPIKeysList_JSONMode(t *testing.T) {
 // ============================================================================
 // 11. Dashboards list — count+start offset, two pages
 //
-// We use a small synthetic "page size" of 5 items so the test produces little
-// output (avoids pipe-buffer blocking).  The key property under test is the
-// pagination loop, not the volume of data.
+// Pagination trigger: pageSize = min(effectiveLimit, maxDashboardsPageSize).
+// For the loop to continue after page 1, the page must be "full"
+// (len(page) == pageSize) AND len(rows) < effectiveLimit.
 //
-// Page 1: 5 items = full page  → loop must continue.
-// Page 2: 3 items = short page → loop must stop.
-// flagLimit = 10 > 5, so pagination triggers.
+// Strategy: flagLimit=200 > maxDashboardsPageSize(100), so pageSize=100.
+//   Page 1: exactly 100 items (full page, 100 < 200 → loop continues).
+//   Page 2: 5 items (short page → loop stops).
+// Total output ≈ 105 rows × ~110 chars = ~11 KB — safe for the pipe.
 // ============================================================================
 
 func TestPaginationDashboardsList_OffsetBased_TwoPages(t *testing.T) {
 	var callCount int32
 
-	// Override maxDashboardsPageSize for this test via a small flagLimit
-	// that happens to be larger than our mock page.  The real constant is 100;
-	// we just need flagLimit > items-per-page so the loop asks for a second page.
-	const mockPageSize = 5
-
-	makeDashPage := func(prefix string, n int) []interface{} {
-		items := make([]interface{}, n)
-		for i := 0; i < n; i++ {
-			id := fmt.Sprintf("%s-%02d", prefix, i)
-			items[i] = makeDashEntry(id, "Dashboard "+id)
-		}
-		return items
-	}
-
 	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
 		atomic.AddInt32(&callCount, 1)
 		switch n {
 		case 1:
-			writeJSON(w, map[string]interface{}{"dashboards": makeDashPage("pg1", mockPageSize)})
+			// Full page (100 == pageSize=100) → loop must continue.
+			items := make([]interface{}, maxDashboardsPageSize)
+			for i := 0; i < maxDashboardsPageSize; i++ {
+				id := fmt.Sprintf("dp1-%03d", i)
+				items[i] = makeDashEntry(id, "Dashboard "+id)
+			}
+			writeJSON(w, map[string]interface{}{"dashboards": items})
 		default:
-			writeJSON(w, map[string]interface{}{"dashboards": makeDashPage("pg2", 3)})
+			// Short page → loop stops.
+			writeJSON(w, map[string]interface{}{
+				"dashboards": []interface{}{
+					makeDashEntry("dp2-00", "Dashboard dp2-00"),
+					makeDashEntry("dp2-01", "Dashboard dp2-01"),
+					makeDashEntry("dp2-02", "Dashboard dp2-02"),
+				},
+			})
 		}
 	})
 	defer srv.Close()
 	setMockServer(t, srv)
 
 	resetFlags()
-	// flagLimit > mockPageSize so the first page is "full" and pagination continues.
-	// We also need flagLimit < maxDashboardsPageSize (100) so the API page size
-	// equals flagLimit, not maxDashboardsPageSize.  With flagLimit=8 and a mock
-	// page of 5, the loop will see 5 < 8 and... wait, 5 < 8, so page is short!
-	// Instead set flagLimit = 200 (> maxDashboardsPageSize=100) so pageSize=100.
-	// But our mock only returns 5 items which is < 100 → short page → stops after 1.
-	// We need pages of exactly maxDashboardsPageSize.  Use flagJSON and small pages.
-	//
-	// Simplest approach: use flagLimit=10 which becomes the pageSize (since 10 < 100).
-	// Server returns 10 items on page 1 (full page) and 3 on page 2 (short).
-	flagLimit = 20
+	flagLimit = 200 // effectiveLimit=200 > maxDashboardsPageSize=100 → pageSize=100
 	dashboardsListAll = false
-
-	// Rebuild the server with the right page size now that we know flagLimit=20
-	// means pageSize=20 (min(20, 100)).  20 < 100, so pageSize=20.
-	// Mock: page 1 returns exactly 20 items (full), page 2 returns 3 (short).
-	var callCount2 int32
-	srv2Items1 := make([]interface{}, 20)
-	for i := 0; i < 20; i++ {
-		id := fmt.Sprintf("p1-%02d", i)
-		srv2Items1[i] = makeDashEntry(id, "Dashboard "+id)
-	}
-	srv2Items2 := []interface{}{
-		makeDashEntry("p2-00", "Dashboard p2-00"),
-		makeDashEntry("p2-01", "Dashboard p2-01"),
-	}
-	srv2 := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
-		atomic.AddInt32(&callCount2, 1)
-		switch n {
-		case 1:
-			writeJSON(w, map[string]interface{}{"dashboards": srv2Items1})
-		default:
-			writeJSON(w, map[string]interface{}{"dashboards": srv2Items2})
-		}
-	})
-	defer srv2.Close()
-	setMockServer(t, srv2)
-	_ = srv  // suppress unused variable
-	_ = callCount
 
 	out := captureStdout(t, func() {
 		if err := runDashboardsList(nil, nil); err != nil {
@@ -626,10 +607,10 @@ func TestPaginationDashboardsList_OffsetBased_TwoPages(t *testing.T) {
 		}
 	})
 
-	if atomic.LoadInt32(&callCount2) < 2 {
-		t.Errorf("expected at least 2 HTTP calls (pagination), got %d", callCount2)
+	if atomic.LoadInt32(&callCount) < 2 {
+		t.Errorf("expected at least 2 HTTP calls (pagination), got %d", callCount)
 	}
-	for _, id := range []string{"p1-00", "p1-19", "p2-00", "p2-01"} {
+	for _, id := range []string{"dp1-000", "dp1-099", "dp2-00", "dp2-02"} {
 		if !strings.Contains(out, id) {
 			t.Errorf("output missing dashboard %s; output (truncated):\n%.500s", id, out)
 		}
@@ -874,46 +855,49 @@ func TestPaginationDashboardsSearch_JSONMode(t *testing.T) {
 // ============================================================================
 // 16. Hosts list — count+start offset, two pages
 //
-// Uses a small synthetic page (5 items) to keep output small and avoid
-// pipe-buffer blocking.  flagLimit=10 > 5, so a second page is requested.
-// Page 2 returns 3 items (short page) → loop stops.
+// For pagination to continue after page 1, two conditions must hold:
+//   (a) len(rows) < effectiveLimit  (need more items)
+//   (b) len(hostList) == pageSize   (page was full, not the last)
+//
+// Strategy: flagLimit=1500, pageSize = min(1500, maxHostsPageSize=1000) = 1000.
+//   Page 1: exactly 1000 items (full: 1000 < 1500 rows needed → continue).
+//   Page 2: 3 items (short: 3 < 1000 → stop).
+//
+// 1000 items in table output ≈ 80 KB which fills the pipe buffer.
+// Use flagJSON=true: each item is ≈55 bytes → 1003 items ≈ 55 KB, safely under 64 KB.
 // ============================================================================
 
 func TestPaginationHostsList_OffsetBased_TwoPages(t *testing.T) {
 	var callCount int32
 
-	// With flagLimit=10 and maxHostsPageSize=1000, pageSize = min(10,1000) = 10.
-	// Return exactly 10 items on page 1 (full page) and 3 on page 2 (short).
-	const syntheticPageSize = 10
-
-	makeHostPage := func(prefix string, n int) []interface{} {
-		items := make([]interface{}, n)
-		for i := 0; i < n; i++ {
-			items[i] = makeHostEntry(fmt.Sprintf("%s-host-%02d", prefix, i))
-		}
-		return items
-	}
-
 	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
 		atomic.AddInt32(&callCount, 1)
 		switch n {
 		case 1:
-			writeJSON(w, map[string]interface{}{"host_list": makeHostPage("pg1", syntheticPageSize)})
+			// Full page (1000 == pageSize, 1000 < effectiveLimit=1500) → continue.
+			items := make([]interface{}, maxHostsPageSize)
+			for i := 0; i < maxHostsPageSize; i++ {
+				items[i] = makeHostEntry(fmt.Sprintf("h1-%04d", i))
+			}
+			writeJSON(w, map[string]interface{}{"host_list": items})
 		default:
-			writeJSON(w, map[string]interface{}{"host_list": makeHostPage("pg2", 3)})
+			// Short page → stop.
+			writeJSON(w, map[string]interface{}{
+				"host_list": []interface{}{
+					makeHostEntry("h2-000"),
+					makeHostEntry("h2-001"),
+					makeHostEntry("h2-002"),
+				},
+			})
 		}
 	})
 	defer srv.Close()
 	setMockServer(t, srv)
 
 	resetFlags()
-	flagLimit = syntheticPageSize + 5 // 15; pageSize = min(15, 1000) = 15 but server returns 10 (full)
-	// Hmm: if pageSize=15 and server returns 10, then 10 < 15 → short page → stop after 1 call.
-	// We need pageSize == syntheticPageSize for the "full page" condition.
-	// Set flagLimit = syntheticPageSize exactly: pageSize = min(10, 1000) = 10.
-	// Server returns 10 on page 1 (NOT short: 10 == 10) → loop continues.
-	// Server returns 3 on page 2 (short: 3 < 10) → loop stops.  ✓
-	flagLimit = syntheticPageSize
+	flagLimit = 1500  // pageSize = min(1500, 1000) = 1000
+	flagJSON = true   // avoid table renderer filling pipe buffer
+	flagQuiet = true
 	hostsListAll = false
 	hostsListFilter = ""
 	hostsListSortField = ""
@@ -930,44 +914,43 @@ func TestPaginationHostsList_OffsetBased_TwoPages(t *testing.T) {
 	if atomic.LoadInt32(&callCount) < 2 {
 		t.Errorf("expected at least 2 HTTP calls (pagination), got %d", callCount)
 	}
-	for _, name := range []string{"pg1-host-00", "pg1-host-09", "pg2-host-00", "pg2-host-02"} {
-		if !strings.Contains(out, name) {
-			t.Errorf("output missing host %s; output:\n%s", name, out)
-		}
+
+	arr := mustParseJSONArr(t, out)
+	wantLen := maxHostsPageSize + 3
+	if len(arr) != wantLen {
+		t.Errorf("JSON output has %d items, want %d (all pages merged)", len(arr), wantLen)
 	}
+
+	flagJSON = false
 }
 
 // ============================================================================
 // 17. Hosts list — --all flag exhausts three pages
 //
-// Use flagJSON=true to avoid rendering thousands of rows through the pipe.
-// With --all and maxHostsPageSize=1000 we'd need 1000-item pages, which is
-// too large for captureStdout's pipe.  Use flagJSON so output is compact JSON.
+// With --all, effectiveLimit=0 and pageSize=maxHostsPageSize=1000.
+// Pages 1 and 2 must return exactly 1000 items each (full page) to continue.
+// Page 3 returns 1 item (short page) → stops.
+//
+// 2001 items as JSON (≈55 bytes each) = ≈110 KB which EXCEEDS the 64 KB
+// os.Pipe kernel buffer used by captureStdout.  Use discardStdout instead;
+// we verify pagination via HTTP call count and not output content.
 // ============================================================================
 
 func TestPaginationHostsList_AllFlag_ThreePages(t *testing.T) {
 	var callCount int32
 
-	// With --all the page size is maxHostsPageSize (1000).
-	// Pages 1 and 2 must be exactly 1000 items (full) to continue pagination.
-	// Page 3 is 1 item (short) to stop.
-	// flagJSON=true keeps output small regardless of item count.
 	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
 		atomic.AddInt32(&callCount, 1)
 		switch n {
-		case 1:
+		case 1, 2:
+			// Full pages → pagination continues.
 			items := make([]interface{}, maxHostsPageSize)
 			for i := 0; i < maxHostsPageSize; i++ {
-				items[i] = makeHostEntry(fmt.Sprintf("ah1-%04d", i))
-			}
-			writeJSON(w, map[string]interface{}{"host_list": items})
-		case 2:
-			items := make([]interface{}, maxHostsPageSize)
-			for i := 0; i < maxHostsPageSize; i++ {
-				items[i] = makeHostEntry(fmt.Sprintf("ah2-%04d", i))
+				items[i] = makeHostEntry(fmt.Sprintf("ah%d-%04d", n, i))
 			}
 			writeJSON(w, map[string]interface{}{"host_list": items})
 		default:
+			// Short page → stops.
 			writeJSON(w, map[string]interface{}{
 				"host_list": []interface{}{makeHostEntry("ah3-last")},
 			})
@@ -977,8 +960,8 @@ func TestPaginationHostsList_AllFlag_ThreePages(t *testing.T) {
 	setMockServer(t, srv)
 
 	resetFlags()
-	flagLimit = 1   // --all overrides
-	flagJSON = true // compact output avoids pipe deadlock
+	flagLimit = 1 // --all overrides this
+	flagJSON = true
 	flagQuiet = true
 	hostsListAll = true
 	hostsListFilter = ""
@@ -987,20 +970,17 @@ func TestPaginationHostsList_AllFlag_ThreePages(t *testing.T) {
 	hostsListCount = 0
 	hostsListStart = 0
 
-	out := captureStdout(t, func() {
-		if err := runHostsList(nil, nil); err != nil {
-			t.Errorf("runHostsList --all returned error: %v", err)
-		}
+	// Output is 2001 items ≈ 110 KB; use discardStdout to avoid pipe deadlock.
+	var runErr error
+	discardStdout(t, func() {
+		runErr = runHostsList(nil, nil)
 	})
+	if runErr != nil {
+		t.Errorf("runHostsList --all returned error: %v", runErr)
+	}
 
 	if atomic.LoadInt32(&callCount) < 3 {
 		t.Errorf("expected at least 3 HTTP calls (--all), got %d", callCount)
-	}
-
-	arr := mustParseJSONArr(t, out)
-	wantLen := maxHostsPageSize*2 + 1
-	if len(arr) != wantLen {
-		t.Errorf("--all --json returned %d items, want %d", len(arr), wantLen)
 	}
 
 	hostsListAll = false
@@ -1009,15 +989,15 @@ func TestPaginationHostsList_AllFlag_ThreePages(t *testing.T) {
 
 // ============================================================================
 // 18. Hosts list — --json output merges all pages into a compact array
+//
+// flagLimit=6, pageSize = min(6, 1000) = 6.
+// Page 1: exactly 6 items (full page) → continue.
+// Page 2: 2 items (short) → stop.
 // ============================================================================
 
 func TestPaginationHostsList_JSONMode_MergesAllPages(t *testing.T) {
 	var callCount int32
 
-	// Use a small synthetic page (5 items) so two pages = 8 items total.
-	// flagLimit = 6 → pageSize = min(6, 1000) = 6.
-	// Page 1 returns exactly 6 items (full page) → continue.
-	// Page 2 returns 2 items (short) → stop.
 	const syntheticPageSize = 6
 
 	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
@@ -1042,11 +1022,7 @@ func TestPaginationHostsList_JSONMode_MergesAllPages(t *testing.T) {
 	setMockServer(t, srv)
 
 	resetFlags()
-	flagLimit = syntheticPageSize + 5 // ensure we'd ask for more than one page
-	// pageSize = min(flagLimit, maxHostsPageSize) = min(11, 1000) = 11.
-	// Server returns 6 on page 1 (6 < 11 → short page → stops).
-	// That means we only get 1 call.  Fix: flagLimit = syntheticPageSize exactly.
-	flagLimit = syntheticPageSize
+	flagLimit = syntheticPageSize // pageSize = min(6, 1000) = 6; full page → continue
 	flagJSON = true
 	flagQuiet = true
 	hostsListAll = false
