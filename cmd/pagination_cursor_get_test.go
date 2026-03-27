@@ -67,6 +67,7 @@ func newTestSrv(t *testing.T, f func(w http.ResponseWriter, r *http.Request, n i
 	var counter int32
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&counter, 1)
+		validateRequestAgainstSpec(t, r)
 		f(w, r, n)
 	}))
 }
