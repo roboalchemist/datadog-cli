@@ -15,4 +15,5 @@ jobs:
       - run: make test
       - run: make test-unit
       - run: make test-integration
-      - run: make lint
+      - uses: golangci/golangci-lint-action@v6
+        with: { version: latest }
