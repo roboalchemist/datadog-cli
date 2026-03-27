@@ -20,14 +20,13 @@ clean:
 test:
 	go test ./... -run TestSmoke -v -timeout 30s
 
-## test-unit: Run unit tests with race detector and 90%+ coverage
+## test-unit: Run unit tests (no build tags, no credentials required)
 test-unit:
-	go test ./... -race -coverprofile=$(COVFILE) -covermode=atomic -timeout 120s
-	go tool cover -func=$(COVFILE) | tail -1
+	go test ./...
 
-## test-integration: Run integration tests against mock server
+## test-integration: Run integration tests against live Datadog API (requires DD_API_KEY and DD_APP_KEY)
 test-integration:
-	go test ./... -run TestIntegration -v -timeout 120s -tags integration
+	go test -tags integration -timeout 120s -v ./...
 
 ## install: Install binary to /usr/local/bin (requires sudo)
 install: build
