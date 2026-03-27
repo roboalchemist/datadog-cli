@@ -23,6 +23,11 @@ jobs:
           cache: true
 
       - name: Run unit tests
+        # NOTE: go test ./... includes spec contract validation via newTestSrv
+        # (see cmd/spec_validator_test.go). Every mock test verifies that the
+        # requests sent by each command match the Datadog OpenAPI spec, so CI
+        # will fail automatically if a command sends a malformed or unknown
+        # request. No additional spec-check step is needed here.
         run: make test-unit
 
   integration-tests:
