@@ -1,19 +1,43 @@
 name: CI
+
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
+
 jobs:
   test:
+    name: Unit Tests & Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version-file: go.mod }
+        with:
+          go-version-file: go.mod
+          cache: true
       - run: make build
       - run: make test
       - run: make test-unit
-      - run: make test-integration
       - uses: golangci/golangci-lint-action@v6
-        with: { version: latest }
+        with:
+          version: latest
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    # Only run on push/own-repo PRs — fork PRs don't have secrets
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run integration tests
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+        timeout-minutes: 5
+        run: make test-integration
