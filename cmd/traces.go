@@ -13,6 +13,9 @@ import (
 	"github.com/roboalchemist/datadog-cli/pkg/output"
 )
 
+// maxSpansPageSize is the maximum page[limit] accepted by the Datadog spans search API.
+const maxSpansPageSize = 1000
+
 // ---- traces command group ----
 
 var tracesCmd = &cobra.Command{
@@ -39,6 +42,7 @@ var (
 	tracesSearchTo          string
 	tracesSearchSort        string
 	tracesSearchFilterQuery string
+	tracesSearchAll         bool
 )
 
 var tracesSearchCmd = &cobra.Command{
@@ -75,9 +79,17 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 	client := newClient()
 	opts := GetOutputOptions()
 
-	pageSize := flagLimit
-	if pageSize > 1000 {
-		pageSize = 1000
+	// Determine effective limit: --all means no cap.
+	effectiveLimit := flagLimit
+	if tracesSearchAll {
+		effectiveLimit = 0 // 0 = unlimited
+	}
+
+	// First page size: min(effectiveLimit, maxSpansPageSize).
+	// If unlimited (--all), use max page size.
+	firstPageSize := effectiveLimit
+	if firstPageSize == 0 || firstPageSize > maxSpansPageSize {
+		firstPageSize = maxSpansPageSize
 	}
 
 	// Build filter block
@@ -93,7 +105,7 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 	attributes := map[string]interface{}{
 		"filter": filter,
 		"page": map[string]interface{}{
-			"limit": pageSize,
+			"limit": firstPageSize,
 		},
 	}
 
@@ -129,13 +141,43 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	var rows []spanRow
-	var lastRaw interface{}
+	// allData accumulates raw span items for JSON output across pages.
+	var allData []interface{}
+	// lastRaw holds the most recent raw response for metadata (links, meta, etc.).
+	var lastRaw map[string]interface{}
 	cursor := ""
+	pageNum := 0
 
-	for len(rows) < flagLimit {
+	needsMorePages := func() bool {
+		if tracesSearchAll {
+			return true // stop only when cursor is gone
+		}
+		return len(rows) < effectiveLimit
+	}
+
+	for needsMorePages() {
+		pageNum++
+
 		if cursor != "" {
 			if pageMap, ok := attributes["page"].(map[string]interface{}); ok {
 				pageMap["cursor"] = cursor
+				// Adjust page size for the last page when limit is set.
+				if !tracesSearchAll {
+					remaining := effectiveLimit - len(rows)
+					ps := remaining
+					if ps > maxSpansPageSize {
+						ps = maxSpansPageSize
+					}
+					pageMap["limit"] = ps
+				}
+			}
+			// Print progress to stderr (unless --quiet).
+			if !flagQuiet {
+				if tracesSearchAll {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d spans so far)...\n", pageNum, len(rows))
+				} else {
+					_, _ = fmt.Fprintf(os.Stderr, "Fetching page %d (%d/%d)...\n", pageNum, len(rows), effectiveLimit)
+				}
 			}
 		}
 
@@ -150,15 +192,15 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 		}
 		lastRaw = raw
 
-		if opts.JSON && cursor == "" {
-			return output.RenderJSON(raw, opts)
-		}
-
 		data, _ := raw["data"].([]interface{})
+
+		// Collect items for JSON output and table rows simultaneously.
 		for _, item := range data {
-			if len(rows) >= flagLimit {
+			if !tracesSearchAll && len(rows) >= effectiveLimit {
 				break
 			}
+			allData = append(allData, item)
+
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
 
@@ -234,7 +276,20 @@ func runTracesSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if opts.JSON {
-		return output.RenderJSON(lastRaw, opts)
+		// Build a merged response: combine all pages' data arrays, keep metadata
+		// from the last response (links, meta) so cursor/count reflects final state.
+		merged := map[string]interface{}{
+			"data": allData,
+		}
+		if lastRaw != nil {
+			if links, ok := lastRaw["links"]; ok {
+				merged["links"] = links
+			}
+			if metaVal, ok := lastRaw["meta"]; ok {
+				merged["meta"] = metaVal
+			}
+		}
+		return output.RenderJSON(merged, opts)
 	}
 
 	if len(rows) == 0 {
@@ -544,6 +599,7 @@ func init() {
 	tracesSearchCmd.Flags().StringVar(&tracesSearchTo, "to", "now", "End time (e.g. now, ISO-8601, unix)")
 	tracesSearchCmd.Flags().StringVar(&tracesSearchSort, "sort", "", "Sort field (e.g. duration, -duration, timestamp)")
 	tracesSearchCmd.Flags().StringVar(&tracesSearchFilterQuery, "filter-query", "", "Additional filter query to apply")
+	tracesSearchCmd.Flags().BoolVar(&tracesSearchAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
 	_ = tracesSearchCmd.MarkFlagRequired("query")
 
 	// traces aggregate flags
