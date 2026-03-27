@@ -17,6 +17,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Fetch latest OpenAPI specs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,7 +38,18 @@ jobs:
             git diff --stat specs/
           fi
 
+      - name: Run tests against updated specs
+        id: test
+        if: steps.changes.outputs.changed == 'true'
+        # continue-on-error so PR creation always happens even when tests fail.
+        # Failures are surfaced as a PR comment in the next step instead.
+        continue-on-error: true
+        run: |
+          go test ./... -timeout 60s 2>&1 | tee /tmp/test-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Open PR if specs changed
+        id: open-pr
         if: steps.changes.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,8 +61,48 @@ jobs:
           git add specs/v1.yaml specs/v2.yaml
           git commit -m "chore: update Datadog OpenAPI specs $(date +%Y-%m-%d)"
           git push origin "$BRANCH"
-          gh pr create \
+          PR_URL=$(gh pr create \
             --title "chore: update Datadog OpenAPI specs $(date +%Y-%m-%d)" \
             --body "Automated weekly refresh of \`specs/v1.yaml\` and \`specs/v2.yaml\` from [DataDog/datadog-api-client-go](https://github.com/DataDog/datadog-api-client-go)." \
             --base main \
-            --head "$BRANCH"
+            --head "$BRANCH")
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          # Extract PR number from URL (e.g. https://github.com/owner/repo/pull/42)
+          PR_NUMBER="${PR_URL##*/}"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Comment test results on PR
+        if: steps.changes.outputs.changed == 'true' && steps.open-pr.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outcome = '${{ steps.test.outcome }}';
+            const testOutput = require('fs').readFileSync('/tmp/test-output.txt', 'utf8');
+            const prNumber = parseInt('${{ steps.open-pr.outputs.pr_number }}', 10);
+
+            let body;
+            if (outcome === 'success') {
+              body = '✅ **Spec drift check passed** — all tests pass with the updated specs. No API drift detected.';
+            } else {
+              body = [
+                '⚠️ **Spec drift detected** — test failures found after updating specs.',
+                '',
+                'One or more commands send requests that no longer match the updated Datadog OpenAPI spec.',
+                'Code changes may be required before merging.',
+                '',
+                '<details><summary>Test output</summary>',
+                '',
+                '```',
+                testOutput.slice(-8000),  // last 8 KB to stay under comment limits
+                '```',
+                '',
+                '</details>',
+              ].join('\n');
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
