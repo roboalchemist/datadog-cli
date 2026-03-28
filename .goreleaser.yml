@@ -9,7 +9,7 @@ archives:
   - format_overrides:
       - goos: windows
         format: zip
-brews:
+homebrew:
   - repository:
       owner: roboalchemist
       name: homebrew-tap
