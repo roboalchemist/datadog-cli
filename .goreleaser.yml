@@ -14,7 +14,7 @@ brews:
       owner: roboalchemist
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    folder: Formula
+    directory: Formula
     homepage: "https://github.com/roboalchemist/datadog-cli"
     description: "Read-only CLI for querying Datadog APIs"
     license: "MIT"
