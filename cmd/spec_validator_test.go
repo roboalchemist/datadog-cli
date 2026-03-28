@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -126,5 +127,80 @@ func validateRequestAgainstSpec(t *testing.T, r *http.Request) {
 	}
 	if err := openapi3filter.ValidateRequest(r.Context(), input); err != nil {
 		t.Errorf("spec validation: request %s %s failed: %v", r.Method, r.URL.Path, err)
+	}
+}
+
+// validateResponseAgainstSpec validates an HTTP response captured in rec against
+// the OpenAPI spec for the matching route.
+//
+// Validation is always non-fatal: failures are logged via t.Logf because mock
+// responses are intentionally minimal (many required fields are absent).
+//
+// When DD_SPEC_STRICT=true the same t.Logf is used with a "STRICT:" prefix so
+// callers can audit which mocks are non-conformant without breaking CI.
+func validateResponseAgainstSpec(t *testing.T, r *http.Request, rec *httptest.ResponseRecorder) {
+	t.Helper()
+
+	// Pick the right router based on the path prefix.
+	var router routers.Router
+	if strings.HasPrefix(r.URL.Path, "/api/v2/") {
+		router = specV2Router
+	} else {
+		router = specV1Router
+	}
+	if router == nil {
+		// Spec not loaded; skip validation rather than failing.
+		return
+	}
+
+	// Build a path-only clone of the request (same reasoning as validateRequestAgainstSpec).
+	pathOnlyURL := *r.URL
+	pathOnlyURL.Scheme = ""
+	pathOnlyURL.Host = ""
+	pathOnlyReq := r.Clone(r.Context())
+	pathOnlyReq.URL = &pathOnlyURL
+	pathOnlyReq.RequestURI = r.URL.RequestURI()
+
+	// Find the matching route. If the route is not found we skip — the request
+	// validator will have already reported it.
+	route, pathParams, err := router.FindRoute(pathOnlyReq)
+	if err != nil {
+		return
+	}
+
+	// Build the RequestValidationInput that ResponseValidationInput requires.
+	reqInput := &openapi3filter.RequestValidationInput{
+		Request:    pathOnlyReq,
+		PathParams: pathParams,
+		Route:      route,
+		Options: &openapi3filter.Options{
+			ExcludeRequestBody: true,
+			MultiError:         true,
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+	}
+
+	// Build the ResponseValidationInput from the captured recorder.
+	respInput := &openapi3filter.ResponseValidationInput{
+		RequestValidationInput: reqInput,
+		Status:                 rec.Code,
+		Header:                 rec.Header(),
+		Options: &openapi3filter.Options{
+			// Collect all errors rather than stopping at the first one.
+			MultiError:         true,
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+	}
+	respInput.SetBodyBytes(rec.Body.Bytes())
+
+	if err := openapi3filter.ValidateResponse(r.Context(), respInput); err != nil {
+		strict := os.Getenv("DD_SPEC_STRICT") == "true"
+		if strict {
+			t.Logf("STRICT: spec response validation: %s %s (status %d): %v",
+				r.Method, r.URL.Path, rec.Code, err)
+		} else {
+			t.Logf("spec response validation (warn): %s %s (status %d): %v",
+				r.Method, r.URL.Path, rec.Code, err)
+		}
 	}
 }

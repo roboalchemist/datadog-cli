@@ -66,9 +66,22 @@ func newTestSrv(t *testing.T, f func(w http.ResponseWriter, r *http.Request, n i
 	t.Helper()
 	var counter int32
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&counter, 1)
 		validateRequestAgainstSpec(t, r)
-		f(w, r, n)
+
+		// Capture response for validation before replaying to the real ResponseWriter.
+		rec := httptest.NewRecorder()
+		n := atomic.AddInt32(&counter, 1)
+		f(rec, r, n)
+
+		// Validate response (warn only — mocks are intentionally minimal).
+		validateResponseAgainstSpec(t, r, rec)
+
+		// Replay captured response to the real ResponseWriter.
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
 	}))
 }
 
