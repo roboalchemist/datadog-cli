@@ -3,6 +3,10 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (leave empty for HEAD)'
+        required: false
 jobs:
   release:
     runs-on: ubuntu-latest
