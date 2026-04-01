@@ -26,7 +26,7 @@ test-unit:
 
 ## test-integration: Run integration tests against live Datadog API (requires DD_API_KEY and DD_APP_KEY)
 test-integration:
-	go test -tags integration -timeout 120s -v ./...
+	go test -tags integration -timeout 5m -v ./...
 
 ## install: Install binary to /usr/local/bin (requires sudo)
 install: build
