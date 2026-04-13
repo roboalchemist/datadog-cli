@@ -1,6 +1,6 @@
 # datadog-cli
 
-> Read-only CLI for querying Datadog APIs. Covers logs, traces, APM, metrics, hosts, monitors, dashboards, SLOs, incidents, RUM, audit, usage, and more.
+> CLI for querying Datadog APIs and managing notebooks. Covers logs, traces, APM, metrics, hosts, monitors, dashboards, SLOs, incidents, RUM, audit, usage, and more. Supports notebook write operations (create, update, delete).
 
 ## Docs
 
@@ -10,7 +10,7 @@
 
 ## API
 
-All commands are read-only (list/get/search/aggregate only). No write operations.
+Most commands are read-only (list/get/search/aggregate). Write operations are supported for notebooks (create, update, delete) and require `notebooks_write` scope.
 
 Authentication via `DD_API_KEY` + `DD_APP_KEY` environment variables, `--api-key`/`--app-key` flags, or `~/.datadog-cli/config.yaml` (profile-based).
 
@@ -18,7 +18,7 @@ Default site: `datadoghq.com`. Override with `DD_SITE` env var or `--site` flag.
 
 ## Command Groups
 
-logs, traces, apm, metrics, monitors, hosts, containers, processes, dashboards, events, downtimes, incidents, notebooks, rum, slos, tags, audit, usage, users, pipelines, api-keys, auth
+logs, traces, apm, metrics, monitors, hosts, containers, processes, dashboards, events, downtimes, incidents, notebooks (list, get, create, update, delete), rum, slos, tags, audit, usage, users, pipelines, api-keys, auth
 
 ## Key Flags
 
@@ -29,6 +29,33 @@ logs, traces, apm, metrics, monitors, hosts, containers, processes, dashboards, 
 - `--fields f1,f2`: show only named columns
 - `--from` / `--to`: time range (relative like `1h`, ISO-8601, or unix seconds)
 - `--profile`: named profile from config file
+
+## Notebook Write Commands
+
+```bash
+# Create an annotated incident investigation notebook
+datadog-cli notebooks create \
+  --name "Apr 7 Karpenter Cascade" \
+  --metric "avg:karpenter.cluster_state.node_count{*}" \
+  --start "2026-04-07 07:00" --end "2026-04-08 17:00" \
+  --hline "175:ok dashed:Pre-incident baseline" \
+  --hline "130:error dashed:Post-eviction baseline" \
+  --vline "2026-04-07 11:31:error bold" \
+  --note "## Timeline\n\n- 11:31 AM: Mass eviction (-33 nodes)"
+# => https://app.datadoghq.com/notebook/12345678/apr-7-karpenter-cascade
+
+# Update a notebook (full PUT replacement — unspecified cells are removed)
+datadog-cli notebooks update 12345678 --name "New Name"
+
+# Delete a notebook (--confirm required)
+datadog-cli notebooks delete 12345678 --confirm
+```
+
+`--hline "VALUE:DISPLAY_TYPE[:LABEL]"` — horizontal marker at a y-axis value (repeatable).
+`--vline "DATETIME:DISPLAY_TYPE[:LABEL]"` — vertical marker at a timestamp (repeatable); datetime is `"YYYY-MM-DD HH:MM"` PT.
+`--live-span` — relative window (e.g. `1h`, `4h`, `1d`); alternative to `--start`/`--end`.
+
+Required scope for write commands: `notebooks_write`.
 
 ## Skill Management
 
