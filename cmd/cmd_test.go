@@ -49,7 +49,7 @@ func assertSubcmd(t *testing.T, index map[string]map[string]bool, group string, 
 func TestCommandGroupsAndSubcommands(t *testing.T) {
 	idx := commandIndex()
 
-	assertSubcmd(t, idx, "logs", "search", "aggregate", "indexes")
+	assertSubcmd(t, idx, "logs", "search", "aggregate", "indexes", "tail")
 	assertSubcmd(t, idx, "traces", "search", "aggregate", "get")
 	assertSubcmd(t, idx, "apm", "services", "definitions", "dependencies")
 	assertSubcmd(t, idx, "hosts", "list", "totals")
