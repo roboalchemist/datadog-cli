@@ -1053,6 +1053,13 @@ func TestIntegrationAPMDependencies(t *testing.T) {
 		[]string{"apm", "dependencies", "--env", "production"})
 }
 
+// TestIntegrationAPMEndpoints tests `apm endpoints` command.
+func TestIntegrationAPMEndpoints(t *testing.T) {
+	srv := newMockServer(t)
+	testOutputFormats(t, "apm endpoints", srv.URL,
+		[]string{"apm", "endpoints", "--service", "api-gateway", "--env", "production", "--from", "1h", "--to", "now"})
+}
+
 // TestIntegrationEventsList tests `events list` command.
 func TestIntegrationEventsList(t *testing.T) {
 	srv := newMockServer(t)

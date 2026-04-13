@@ -29,7 +29,10 @@ var apmCmd = &cobra.Command{
   datadog-cli apm dependencies --env production
 
   # List service catalog definitions as JSON
-  datadog-cli apm definitions --json`,
+  datadog-cli apm definitions --json
+
+  # List per-endpoint stats for the api-gateway service in production
+  datadog-cli apm endpoints --service api-gateway --env production`,
 }
 
 // ---- apm services ----
