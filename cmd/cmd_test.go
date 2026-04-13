@@ -72,6 +72,7 @@ func TestCommandGroupsAndSubcommands(t *testing.T) {
 	assertSubcmd(t, idx, "api-keys", "list")
 	assertSubcmd(t, idx, "auth", "scopes")
 	assertSubcmd(t, idx, "skill", "print", "add")
+	assertSubcmd(t, idx, "oncall", "schedules", "escalations", "teams")
 }
 
 // TestRootCmdFindResolvesSubcommands verifies cobra can resolve nested commands.
