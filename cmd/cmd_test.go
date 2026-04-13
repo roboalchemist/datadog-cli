@@ -51,7 +51,7 @@ func TestCommandGroupsAndSubcommands(t *testing.T) {
 
 	assertSubcmd(t, idx, "logs", "search", "aggregate", "indexes")
 	assertSubcmd(t, idx, "traces", "search", "aggregate", "get")
-	assertSubcmd(t, idx, "apm", "services", "definitions", "dependencies", "endpoints")
+	assertSubcmd(t, idx, "apm", "services", "definitions", "dependencies", "endpoints", "stats")
 	assertSubcmd(t, idx, "hosts", "list", "totals")
 	assertSubcmd(t, idx, "tags", "list", "get")
 	assertSubcmd(t, idx, "metrics", "list", "query", "search")
