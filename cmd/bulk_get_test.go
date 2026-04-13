@@ -806,6 +806,118 @@ func TestSingleUsersGet(t *testing.T) {
 	}
 }
 
+// ---- apm stats ----
+
+func TestBulkAPMStats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/api/v2/spans/analytics/aggregate") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		// Simulate two resource buckets with hits, errors, and latency percentiles.
+		writeJSON(w, map[string]interface{}{
+			"data": []interface{}{
+				map[string]interface{}{
+					"type": "bucket",
+					"attributes": map[string]interface{}{
+						"by": map[string]interface{}{
+							"resource_name": "GET /api/v1/users",
+						},
+						"compute": map[string]interface{}{
+							"c0": float64(1500), // hits
+							"c1": float64(12),   // errors
+							"c2": float64(5000000),  // p50 = 5ms
+							"c3": float64(10000000), // p75 = 10ms
+							"c4": float64(50000000), // p99 = 50ms
+						},
+					},
+				},
+				map[string]interface{}{
+					"type": "bucket",
+					"attributes": map[string]interface{}{
+						"by": map[string]interface{}{
+							"resource_name": "POST /api/v1/orders",
+						},
+						"compute": map[string]interface{}{
+							"c0": float64(300),  // hits
+							"c1": float64(5),    // errors
+							"c2": float64(20000000),  // p50 = 20ms
+							"c3": float64(45000000),  // p75 = 45ms
+							"c4": float64(200000000), // p99 = 200ms
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	apmStatsService = "my-api"
+	apmStatsEnv = "production"
+	apmStatsFrom = "1h"
+	apmStatsTo = "now"
+
+	out := captureStdout(t, func() {
+		if err := runAPMStats(nil, nil); err != nil {
+			t.Errorf("runAPMStats returned error: %v", err)
+		}
+	})
+
+	// Verify resource names appear in output
+	for _, want := range []string{"GET /api/v1/users", "POST /api/v1/orders"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q; got:\n%s", want, out)
+		}
+	}
+
+	// Verify stats columns appear
+	for _, want := range []string{"1500", "12", "5ms", "10ms", "50ms"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q; got:\n%s", want, out)
+		}
+	}
+
+	// Reset
+	apmStatsService = ""
+	apmStatsEnv = ""
+	apmStatsFrom = ""
+	apmStatsTo = ""
+}
+
+// TestBulkAPMStats_EmptyResponse verifies no-data message for apm stats.
+func TestBulkAPMStats_EmptyResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]interface{}{
+			"data": []interface{}{},
+		})
+	}))
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	apmStatsService = "unknown-service"
+	apmStatsEnv = "production"
+	apmStatsFrom = "1h"
+	apmStatsTo = "now"
+
+	out := captureStdout(t, func() {
+		if err := runAPMStats(nil, nil); err != nil {
+			t.Errorf("runAPMStats returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "No APM resources found") {
+		t.Errorf("expected 'No APM resources found' message; got:\n%s", out)
+	}
+
+	// Reset
+	apmStatsService = ""
+	apmStatsEnv = ""
+	apmStatsFrom = ""
+	apmStatsTo = ""
+}
+
 // ---- traces get ----
 
 func TestSingleTracesGet(t *testing.T) {

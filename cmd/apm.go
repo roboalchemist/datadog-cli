@@ -34,7 +34,11 @@ var apmCmd = &cobra.Command{
 
 // ---- apm services ----
 
-var apmServicesAll bool
+var (
+	apmServicesAll  bool
+	apmServicesEnv  string
+	apmServicesType string
+)
 
 var apmServicesCmd = &cobra.Command{
 	Use:   "services",
@@ -357,6 +361,216 @@ func runAPMDefinitions(cmd *cobra.Command, args []string) error {
 	return output.RenderTable(cols, tableRows, rows, opts)
 }
 
+// ---- apm stats ----
+
+var (
+	apmStatsEnv     string
+	apmStatsService string
+	apmStatsFrom    string
+	apmStatsTo      string
+)
+
+var apmStatsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "List APM resource stats with latency percentiles, throughput, and errors",
+	Long: `List APM resource stats (database queries, HTTP endpoints, cache operations, etc.)
+for a service with aggregated latency percentiles, throughput, and error counts.
+
+Uses POST /api/v2/spans/analytics/aggregate to group spans by resource_name
+and compute hits, errors, p50/p75/p99 latency.
+
+The --env flag filters results to a specific APM environment. If omitted all
+environments are included. --service is required to scope the query.
+
+Note: The spans aggregate API is rate-limited to 300 requests/hour.`,
+	Example: `  # Show resource stats for a service in production
+  datadog-cli apm stats --service my-api --env production
+
+  # Show stats for the last two hours
+  datadog-cli apm stats --service web-store --env prod --from 2h
+
+  # Show stats for a custom time window
+  datadog-cli apm stats --service my-service --env staging --from 3h --to 1h
+
+  # Output as JSON for further processing
+  datadog-cli apm stats --service my-api --env production --json`,
+	RunE: runAPMStats,
+}
+
+func runAPMStats(cmd *cobra.Command, args []string) error {
+	fromMs, err := parseTime(apmStatsFrom)
+	if err != nil {
+		return fmt.Errorf("--from: %w", err)
+	}
+	toMs, err := parseTime(apmStatsTo)
+	if err != nil {
+		return fmt.Errorf("--to: %w", err)
+	}
+	if fromMs >= toMs {
+		return fmt.Errorf("--from time must be before --to time")
+	}
+
+	client := newClient()
+	opts := GetOutputOptions()
+
+	// Build the filter query: always filter by service, optionally by env.
+	filterQuery := fmt.Sprintf("service:%s", apmStatsService)
+	if apmStatsEnv != "" && apmStatsEnv != "*" {
+		filterQuery = fmt.Sprintf("service:%s env:%s", apmStatsService, apmStatsEnv)
+	}
+
+	// Request multiple compute functions in one call to get all stats together.
+	// The compute array items are labeled c0..c4 in the response "compute" map.
+	reqBody := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "aggregate_request",
+			"attributes": map[string]interface{}{
+				"filter": map[string]interface{}{
+					"query": filterQuery,
+					"from":  strconv.FormatInt(fromMs, 10),
+					"to":    strconv.FormatInt(toMs, 10),
+				},
+				"compute": []map[string]interface{}{
+					{"aggregation": "count", "type": "total", "metric": "@duration"}, // c0 = hits
+					{"aggregation": "sum", "type": "total", "metric": "@error"},      // c1 = errors
+					{"aggregation": "pc50", "type": "total", "metric": "@duration"},  // c2 = p50
+					{"aggregation": "pc75", "type": "total", "metric": "@duration"},  // c3 = p75
+					{"aggregation": "pc99", "type": "total", "metric": "@duration"},  // c4 = p99
+				},
+				"group_by": []map[string]interface{}{
+					{
+						"facet": "resource_name",
+						"limit": flagLimit,
+						"sort": map[string]interface{}{
+							"type":        "measure",
+							"aggregation": "count",
+							"metric":      "@duration",
+							"order":       "desc",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	respBytes, err := client.Post("/api/v2/spans/analytics/aggregate", reqBody, nil)
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(respBytes, &raw); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(raw, opts)
+	}
+
+	// Extract buckets from response.
+	// Shape: {"data":[{"type":"bucket","attributes":{"by":{"resource_name":"..."},"compute":{"c0":N,...}}}]}
+	dataField, _ := raw["data"].([]interface{})
+
+	if len(dataField) == 0 {
+		_, _ = fmt.Fprintf(os.Stdout, "No APM resources found for service=%s", apmStatsService)
+		if apmStatsEnv != "" {
+			_, _ = fmt.Fprintf(os.Stdout, " env=%s", apmStatsEnv)
+		}
+		_, _ = fmt.Fprintln(os.Stdout, ".")
+		return nil
+	}
+
+	type resourceRow struct {
+		Resource string
+		Hits     string
+		Errors   string
+		P50      string
+		P75      string
+		P99      string
+	}
+
+	var rows []resourceRow
+
+	for _, b := range dataField {
+		bucket, _ := b.(map[string]interface{})
+		attrs, _ := bucket["attributes"].(map[string]interface{})
+
+		byMap, _ := attrs["by"].(map[string]interface{})
+		computeMap, _ := attrs["compute"].(map[string]interface{})
+
+		resourceName, _ := byMap["resource_name"].(string)
+
+		// c0=hits, c1=errors, c2=p50, c3=p75, c4=p99
+		hits := apmFormatCount(computeMap["c0"])
+		errors := apmFormatCount(computeMap["c1"])
+		p50 := apmFormatLatencyNs(computeMap["c2"])
+		p75 := apmFormatLatencyNs(computeMap["c3"])
+		p99 := apmFormatLatencyNs(computeMap["c4"])
+
+		rows = append(rows, resourceRow{
+			Resource: resourceName,
+			Hits:     hits,
+			Errors:   errors,
+			P50:      p50,
+			P75:      p75,
+			P99:      p99,
+		})
+	}
+
+	cols := []output.ColumnConfig{
+		{Name: "Resource", Width: 60},
+		{Name: "Hits"},
+		{Name: "Errors"},
+		{Name: "P50"},
+		{Name: "P75"},
+		{Name: "P99"},
+	}
+
+	tableRows := make([][]string, len(rows))
+	for i, r := range rows {
+		tableRows[i] = []string{r.Resource, r.Hits, r.Errors, r.P50, r.P75, r.P99}
+	}
+
+	return output.RenderTable(cols, tableRows, rows, opts)
+}
+
+// apmFormatCount formats a numeric value (float64 from JSON) as an integer string.
+func apmFormatCount(v interface{}) string {
+	if v == nil {
+		return "0"
+	}
+	switch val := v.(type) {
+	case float64:
+		return fmt.Sprintf("%d", int64(val))
+	case int64:
+		return fmt.Sprintf("%d", val)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// apmFormatLatencyNs formats a duration value in nanoseconds to a compact
+// human-readable string (e.g. "12.3ms", "1.5s"). Returns "-" if nil or zero.
+func apmFormatLatencyNs(v interface{}) string {
+	if v == nil {
+		return "-"
+	}
+	switch val := v.(type) {
+	case float64:
+		if val == 0 {
+			return "-"
+		}
+		return output.FormatDuration(int64(val))
+	case int64:
+		if val == 0 {
+			return "-"
+		}
+		return output.FormatDuration(val)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 // ---- apm dependencies ----
 
 var (
@@ -568,15 +782,25 @@ func init() {
 
 	// apm services flags
 	apmServicesCmd.Flags().BoolVar(&apmServicesAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
+	apmServicesCmd.Flags().StringVarP(&apmServicesEnv, "env", "e", "", "Filter by environment (matches env:<value> in service tags)")
+	apmServicesCmd.Flags().StringVar(&apmServicesType, "type", "", "Filter by service type (web, db, cache, etc.)")
 
 	// apm definitions flags
 	apmDefinitionsCmd.Flags().BoolVar(&apmDefinitionsAll, "all", false, "Fetch all pages until no cursor remains (overrides --limit)")
+
+	// apm stats flags
+	apmStatsCmd.Flags().StringVar(&apmStatsService, "service", "", "APM service name (required)")
+	apmStatsCmd.Flags().StringVarP(&apmStatsEnv, "env", "e", "", "APM environment (e.g. production, staging); omit for all environments")
+	apmStatsCmd.Flags().StringVar(&apmStatsFrom, "from", "1h", "Start time (e.g. 15m, 1h, 2d, ISO-8601, unix)")
+	apmStatsCmd.Flags().StringVar(&apmStatsTo, "to", "now", "End time (e.g. now, ISO-8601, unix)")
+	_ = apmStatsCmd.MarkFlagRequired("service")
 
 	// Wire up subcommands
 	apmCmd.AddCommand(apmServicesCmd)
 	apmCmd.AddCommand(apmDefinitionsCmd)
 	apmCmd.AddCommand(apmDependenciesCmd)
 	apmCmd.AddCommand(apmDepsCmd)
+	apmCmd.AddCommand(apmStatsCmd)
 
 	// Register with root
 	rootCmd.AddCommand(apmCmd)
