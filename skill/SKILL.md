@@ -1,6 +1,6 @@
 # datadog-cli
 
-Read-only CLI for querying Datadog APIs. Covers logs, traces, APM, metrics, hosts, monitors, dashboards, SLOs, incidents, RUM, audit, usage, and more.
+CLI for querying and writing to Datadog APIs. Covers logs, traces, APM, metrics, hosts, monitors, dashboards, SLOs, incidents, RUM, audit, usage, notebooks (create/update/delete), on-call schedules, and more.
 
 ## Quick Start
 
@@ -161,9 +161,9 @@ When `--json` is active, errors are written to stderr as structured JSON:
 |-------|-------------|-------------|
 | `auth` | `scopes` | API key scope requirements |
 | `api-keys` | `list` | List API keys |
-| `logs` | `search`, `aggregate`, `indexes` | Log Explorer |
+| `logs` | `search`, `aggregate`, `indexes`, `tail` | Log Explorer + real-time tail |
 | `traces` | `search`, `aggregate`, `get` | APM spans |
-| `apm` | `services`, `definitions`, `dependencies` | APM service catalog |
+| `apm` | `services`, `definitions`, `dependencies`, `endpoints`, `stats` | APM service catalog + resource stats |
 | `metrics` | `list`, `query`, `search` | Metrics and timeseries |
 | `monitors` | `list`, `get`, `search` | Alert monitors |
 | `hosts` | `list`, `totals` | Infrastructure hosts |
@@ -173,7 +173,8 @@ When `--json` is active, errors are written to stderr as structured JSON:
 | `events` | `list`, `get` | Event stream |
 | `downtimes` | `list`, `get` | Downtime schedules |
 | `incidents` | `list`, `get` | Incidents |
-| `notebooks` | `list`, `get` | Notebooks |
+| `notebooks` | `list`, `get`, `create`, `update`, `delete` | Notebooks (read + write) |
+| `oncall` | `schedules get`, `schedules who`, `escalations get`, `teams who`, `teams routing-rules` | On-Call schedules and escalations |
 | `rum` | `search`, `aggregate` | Real User Monitoring |
 | `slos` | `list`, `get`, `history` | Service Level Objectives |
 | `tags` | `list`, `get` | Infrastructure tags |
@@ -181,6 +182,70 @@ When `--json` is active, errors are written to stderr as structured JSON:
 | `usage` | `summary`, `top-metrics` | Usage metering |
 | `users` | `list`, `get` | User management |
 | `pipelines` | `list`, `get` | Log pipelines |
+
+## Notebook Write Commands
+
+Create annotated incident investigation notebooks combining timeseries metrics, markers, and markdown.
+
+```bash
+# Create an incident notebook with metric + markers + notes
+datadog-cli notebooks create \
+  --name "Apr 7 Karpenter Cascade" \
+  --metric "avg:karpenter.cluster_state.node_count{*}" \
+  --start "2026-04-07 07:00" --end "2026-04-08 17:00" \
+  --hline "175:ok dashed:Pre-incident baseline" \
+  --hline "130:error dashed:Post-eviction baseline" \
+  --vline "2026-04-07 11:31:error bold:Mass eviction" \
+  --note "## Timeline
+
+- 7:56 AM: Karpenter consolidation begins
+- 11:31 AM: Mass eviction (-33 nodes)
+- 1:46 PM: Mitigation applied"
+# → https://app.datadoghq.com/notebooks/12345678/apr-7-karpenter-cascade
+
+# Update a notebook name
+datadog-cli notebooks update 12345678 --name "Apr 7-8 Karpenter Incident"
+
+# Delete a notebook (--confirm required)
+datadog-cli notebooks delete 12345678 --confirm
+```
+
+**Marker format:**
+- `--hline "VALUE:display_type:label"` — horizontal line, e.g. `"175:ok dashed:Baseline"`
+- `--vline "TIMESTAMP:display_type:label"` — vertical line at timestamp, e.g. `"2026-04-07 11:31:error bold:Incident"`
+- `display_type`: `ok`, `error`, `warning`, `info` + optionally `dashed` or `bold`
+
+**Time flags:** `--start`/`--end` for absolute range, `--live-span` for relative (e.g. `"1h"`, `"4h"`, `"1d"`).
+
+**Required scope:** `notebooks_write`
+
+## Live Tail
+
+Stream logs in real-time (polling-based, like `kubectl logs -f`):
+
+```bash
+# Tail errors for a service
+datadog-cli logs tail --query "service:vcerberus status:error"
+
+# Tail with custom window and interval
+datadog-cli logs tail -q "service:api" --from 5m --interval 2s
+
+# Pipe to grep
+datadog-cli logs tail -q "service:vcerberus" --plaintext | grep "lockdown"
+```
+
+## APM Resource Stats
+
+```bash
+# Endpoint stats for a service (hits, errors, avg latency)
+datadog-cli apm endpoints --service vcerberus --env prod1 --from 1h
+
+# Resource-level stats via spans aggregate (p50/p75/p99)
+datadog-cli apm stats --service vcerberus --env prod1 --from 1h
+
+# Filter APM services by environment or type
+datadog-cli apm services --env production --type web
+```
 
 ## Skill Management
 
