@@ -136,7 +136,6 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 			if !apmServicesAll && len(rows) >= effectiveLimit {
 				break
 			}
-			allData = append(allData, item)
 
 			entry, _ := item.(map[string]interface{})
 			attrs, _ := entry["attributes"].(map[string]interface{})
@@ -144,13 +143,35 @@ func runAPMServices(cmd *cobra.Command, args []string) error {
 
 			name := apmExtractServiceName(schema)
 			team := apmStringField(schema, "team")
-			tags := apmFormatList(apmStringSlice(schema, "tags"))
+			tagsList := apmStringSlice(schema, "tags")
+			tags := apmFormatList(tagsList)
 			// schema type/kind
 			svcType := apmStringField(schema, "type")
 			if svcType == "" {
 				svcType = apmStringField(schema, "kind")
 			}
 
+			// Apply --env filter: check tags for env:<value>
+			if apmServicesEnv != "" {
+				envTag := "env:" + apmServicesEnv
+				matched := false
+				for _, tag := range tagsList {
+					if strings.EqualFold(tag, envTag) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
+
+			// Apply --type filter: match svcType case-insensitively
+			if apmServicesType != "" && !strings.EqualFold(svcType, apmServicesType) {
+				continue
+			}
+
+			allData = append(allData, item)
 			rows = append(rows, serviceRow{
 				Name: name,
 				Type: svcType,

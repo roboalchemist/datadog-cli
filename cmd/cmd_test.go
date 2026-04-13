@@ -84,6 +84,7 @@ func TestRootCmdFindResolvesSubcommands(t *testing.T) {
 		{[]string{"logs", "indexes"}},
 		{[]string{"traces", "search"}},
 		{[]string{"apm", "services"}},
+		{[]string{"apm", "stats"}},
 		{[]string{"hosts", "list"}},
 		{[]string{"metrics", "query"}},
 		{[]string{"monitors", "list"}},

@@ -1090,3 +1090,222 @@ func TestPaginationHostsList_JSONMode_MergesAllPages(t *testing.T) {
 
 	flagJSON = false
 }
+
+// ---- APM services filter helpers ----
+
+// makeAPMItemWithTags returns an APM service definition item with a given type and tags.
+func makeAPMItemWithTags(name, svcType string, tags []string) map[string]interface{} {
+	tagRaw := make([]interface{}, len(tags))
+	for i, t := range tags {
+		tagRaw[i] = t
+	}
+	return map[string]interface{}{
+		"type": "service-definition",
+		"id":   name,
+		"attributes": map[string]interface{}{
+			"schema": map[string]interface{}{
+				"dd-service": name,
+				"team":       "team-a",
+				"type":       svcType,
+				"tags":       tagRaw,
+			},
+			"meta": map[string]interface{}{
+				"schema-version": "v2",
+			},
+		},
+	}
+}
+
+// ============================================================================
+// APM services — --env filter keeps only items tagged env:<value>
+// ============================================================================
+
+func TestAPMServices_EnvFilter_KeepsMatching(t *testing.T) {
+	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
+		writeJSON(w, apmCursorPage([]interface{}{
+			makeAPMItemWithTags("svc-prod", "web", []string{"env:production", "version:1"}),
+			makeAPMItemWithTags("svc-staging", "web", []string{"env:staging"}),
+			makeAPMItemWithTags("svc-both", "db", []string{"env:production", "env:staging"}),
+		}, ""))
+	})
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	flagLimit = 100
+	apmServicesAll = false
+	apmServicesEnv = "production"
+	apmServicesType = ""
+
+	out := captureStdout(t, func() {
+		if err := runAPMServices(nil, nil); err != nil {
+			t.Errorf("runAPMServices --env returned error: %v", err)
+		}
+	})
+
+	apmServicesEnv = ""
+
+	if strings.Contains(out, "svc-staging") {
+		t.Errorf("--env production: output should not contain svc-staging; got:\n%s", out)
+	}
+	if !strings.Contains(out, "svc-prod") {
+		t.Errorf("--env production: output missing svc-prod; got:\n%s", out)
+	}
+	if !strings.Contains(out, "svc-both") {
+		t.Errorf("--env production: output missing svc-both; got:\n%s", out)
+	}
+}
+
+// ============================================================================
+// APM services — --type filter keeps only items of matching type
+// ============================================================================
+
+func TestAPMServices_TypeFilter_KeepsMatching(t *testing.T) {
+	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
+		writeJSON(w, apmCursorPage([]interface{}{
+			makeAPMItemWithTags("web-service", "web", nil),
+			makeAPMItemWithTags("db-service", "db", nil),
+			makeAPMItemWithTags("cache-service", "cache", nil),
+		}, ""))
+	})
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	flagLimit = 100
+	apmServicesAll = false
+	apmServicesEnv = ""
+	apmServicesType = "web"
+
+	out := captureStdout(t, func() {
+		if err := runAPMServices(nil, nil); err != nil {
+			t.Errorf("runAPMServices --type returned error: %v", err)
+		}
+	})
+
+	apmServicesType = ""
+
+	if strings.Contains(out, "db-service") {
+		t.Errorf("--type web: output should not contain db-service; got:\n%s", out)
+	}
+	if strings.Contains(out, "cache-service") {
+		t.Errorf("--type web: output should not contain cache-service; got:\n%s", out)
+	}
+	if !strings.Contains(out, "web-service") {
+		t.Errorf("--type web: output missing web-service; got:\n%s", out)
+	}
+}
+
+// ============================================================================
+// APM stats — basic table output from spans aggregate response
+// ============================================================================
+
+func TestAPMStats_BasicOutput(t *testing.T) {
+	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
+		writeJSON(w, map[string]interface{}{
+			"data": []interface{}{
+				map[string]interface{}{
+					"type": "bucket",
+					"attributes": map[string]interface{}{
+						"by": map[string]interface{}{
+							"resource_name": "GET /api/v1/users",
+						},
+						"compute": map[string]interface{}{
+							"c0": float64(1234),  // hits
+							"c1": float64(5),     // errors
+							"c2": float64(5e6),   // p50 = 5ms
+							"c3": float64(10e6),  // p75 = 10ms
+							"c4": float64(100e6), // p99 = 100ms
+						},
+					},
+				},
+				map[string]interface{}{
+					"type": "bucket",
+					"attributes": map[string]interface{}{
+						"by": map[string]interface{}{
+							"resource_name": "POST /api/v1/events",
+						},
+						"compute": map[string]interface{}{
+							"c0": float64(500),
+							"c1": float64(0),
+							"c2": float64(2e6),
+							"c3": float64(4e6),
+							"c4": float64(20e6),
+						},
+					},
+				},
+			},
+		})
+	})
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	apmStatsService = "my-service"
+	apmStatsEnv = "production"
+	apmStatsFrom = "1h"
+	apmStatsTo = "now"
+
+	out := captureStdout(t, func() {
+		if err := runAPMStats(nil, nil); err != nil {
+			t.Errorf("runAPMStats returned error: %v", err)
+		}
+	})
+
+	apmStatsService = ""
+	apmStatsEnv = ""
+
+	for _, want := range []string{"GET /api/v1/users", "POST /api/v1/events", "1234", "500"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runAPMStats output missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// ============================================================================
+// APM stats — --json output
+// ============================================================================
+
+func TestAPMStats_JSONOutput(t *testing.T) {
+	srv := newTestSrv(t, func(w http.ResponseWriter, r *http.Request, n int32) {
+		writeJSON(w, map[string]interface{}{
+			"data": []interface{}{
+				map[string]interface{}{
+					"type": "bucket",
+					"attributes": map[string]interface{}{
+						"by":      map[string]interface{}{"resource_name": "GET /health"},
+						"compute": map[string]interface{}{"c0": float64(99), "c1": float64(0)},
+					},
+				},
+			},
+		})
+	})
+	defer srv.Close()
+	setMockServer(t, srv)
+
+	resetFlags()
+	flagJSON = true
+	apmStatsService = "health-svc"
+	apmStatsEnv = "prod"
+	apmStatsFrom = "1h"
+	apmStatsTo = "now"
+
+	out := captureStdout(t, func() {
+		if err := runAPMStats(nil, nil); err != nil {
+			t.Errorf("runAPMStats --json returned error: %v", err)
+		}
+	})
+
+	flagJSON = false
+	apmStatsService = ""
+	apmStatsEnv = ""
+
+	result := mustParseJSONObj(t, out)
+	dataArr, ok := result["data"].([]interface{})
+	if !ok {
+		t.Fatalf("--json output missing 'data' array; got:\n%s", out)
+	}
+	if len(dataArr) != 1 {
+		t.Errorf("expected 1 bucket in --json output, got %d", len(dataArr))
+	}
+}
