@@ -99,6 +99,19 @@ func (c *DatadogClient) Post(path string, body interface{}, params url.Values) (
 	return c.doRequest(http.MethodPost, path, body, params)
 }
 
+// Put performs a PUT request to the given path with a JSON body and optional
+// query parameters. Returns the raw response body bytes or a typed error.
+func (c *DatadogClient) Put(path string, body interface{}, params url.Values) ([]byte, error) {
+	return c.doRequest(http.MethodPut, path, body, params)
+}
+
+// Delete performs a DELETE request to the given path with optional query parameters.
+// Returns the raw response body bytes or a typed error. A 204 No Content response
+// is treated as success and returns nil body bytes with no error.
+func (c *DatadogClient) Delete(path string, params url.Values) ([]byte, error) {
+	return c.doRequest(http.MethodDelete, path, nil, params)
+}
+
 // doRequest executes an HTTP request with retry logic and error handling.
 // It serializes body to JSON if non-nil, attaches auth headers, and handles
 // retryable status codes (429, 500, 502, 503, 504) with exponential backoff.

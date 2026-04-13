@@ -178,6 +178,130 @@ func TestPost_SetsContentTypeJSON(t *testing.T) {
 	}
 }
 
+// --- PUT / DELETE happy path ---
+
+func TestPut_SendsBody(t *testing.T) {
+	var gotMethod string
+	var gotBody map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"updated":true}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	payload := map[string]string{"name": "updated-monitor"}
+	body, err := c.Put("/api/v1/monitor/42", payload, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Errorf("expected PUT method, got %q", gotMethod)
+	}
+	if v, ok := gotBody["name"]; !ok || v != "updated-monitor" {
+		t.Errorf("expected body to contain name=updated-monitor, got %v", gotBody)
+	}
+	if string(body) != `{"updated":true}` {
+		t.Errorf("unexpected response body: %s", body)
+	}
+}
+
+func TestPut_401_ReturnsAuthenticationError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"errors":["Invalid API key"]}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.Put("/api/v1/monitor/42", map[string]string{}, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if _, ok := err.(*AuthenticationError); !ok {
+		t.Errorf("expected *AuthenticationError, got %T: %v", err, err)
+	}
+}
+
+func TestDelete_SendsNoBody(t *testing.T) {
+	var gotMethod string
+	var gotContentLength int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotContentLength = r.ContentLength
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	body, err := c.Delete("/api/v1/monitor/42", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("expected DELETE method, got %q", gotMethod)
+	}
+	// No body should be sent with DELETE
+	if gotContentLength > 0 {
+		t.Errorf("expected no request body for DELETE, got ContentLength=%d", gotContentLength)
+	}
+	// 204 is success — body bytes may be empty but error must be nil
+	_ = body
+}
+
+func TestDelete_204_ReturnsNilError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+		// No body — 204 No Content
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.Delete("/api/v1/monitor/42", nil)
+	if err != nil {
+		t.Fatalf("expected nil error for 204 response, got: %v", err)
+	}
+}
+
+func TestDelete_401_ReturnsAuthenticationError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"errors":["Invalid API key"]}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	_, err := c.Delete("/api/v1/monitor/42", nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if _, ok := err.(*AuthenticationError); !ok {
+		t.Errorf("expected *AuthenticationError, got %T: %v", err, err)
+	}
+}
+
+func TestDelete_WithQueryParams(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	params := url.Values{}
+	params.Set("force", "true")
+	_, err := c.Delete("/api/v1/monitor/42", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(gotQuery, "force=true") {
+		t.Errorf("expected force=true in query, got %q", gotQuery)
+	}
+}
+
 // --- Error mapping ---
 
 func TestGet_401_ReturnsAuthenticationError(t *testing.T) {
