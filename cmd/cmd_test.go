@@ -51,7 +51,7 @@ func TestCommandGroupsAndSubcommands(t *testing.T) {
 
 	assertSubcmd(t, idx, "logs", "search", "aggregate", "indexes")
 	assertSubcmd(t, idx, "traces", "search", "aggregate", "get")
-	assertSubcmd(t, idx, "apm", "services", "definitions", "dependencies", "endpoints", "stats")
+	assertSubcmd(t, idx, "apm", "services", "definitions", "dependencies")
 	assertSubcmd(t, idx, "hosts", "list", "totals")
 	assertSubcmd(t, idx, "tags", "list", "get")
 	assertSubcmd(t, idx, "metrics", "list", "query", "search")
@@ -60,7 +60,7 @@ func TestCommandGroupsAndSubcommands(t *testing.T) {
 	assertSubcmd(t, idx, "events", "list", "get")
 	assertSubcmd(t, idx, "incidents", "list", "get")
 	assertSubcmd(t, idx, "downtimes", "list", "get")
-	assertSubcmd(t, idx, "notebooks", "list", "get", "create", "delete")
+	assertSubcmd(t, idx, "notebooks", "list", "get", "delete", "create", "update")
 	assertSubcmd(t, idx, "rum", "search", "aggregate")
 	assertSubcmd(t, idx, "audit", "search")
 	assertSubcmd(t, idx, "containers", "list")
@@ -84,7 +84,6 @@ func TestRootCmdFindResolvesSubcommands(t *testing.T) {
 		{[]string{"logs", "indexes"}},
 		{[]string{"traces", "search"}},
 		{[]string{"apm", "services"}},
-		{[]string{"apm", "stats"}},
 		{[]string{"hosts", "list"}},
 		{[]string{"metrics", "query"}},
 		{[]string{"monitors", "list"}},

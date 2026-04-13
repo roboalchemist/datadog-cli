@@ -383,7 +383,281 @@ Uses POST /api/v1/notebooks.`,
 	RunE: runNotebooksCreate,
 }
 
-// parseHLine parses a --hline value of the form "VALUE:DISPLAY_TYPE:LABEL"
+func runNotebooksCreate(cmd *cobra.Command, args []string) error {
+	if notebooksCreateFlags.name == "" {
+		return fmt.Errorf("--name is required")
+	}
+
+	client := newClient()
+	opts := GetOutputOptions()
+
+	body, err := buildNotebookBody(notebooksCreateFlags.name, notebooksCreateFlags.metric,
+		notebooksCreateFlags.start, notebooksCreateFlags.end, notebooksCreateFlags.liveSpan,
+		notebooksCreateFlags.hlines, notebooksCreateFlags.vlines, notebooksCreateFlags.note)
+	if err != nil {
+		return err
+	}
+
+	respBytes, err := client.Post("/api/v1/notebooks", body, nil)
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(respBytes, &raw); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(raw, opts)
+	}
+
+	// Extract notebook ID from response and print URL.
+	nb, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("unexpected response shape: missing \"data\"")
+	}
+	id := formatID(nb["id"])
+	if id == "" || id == "<nil>" {
+		return fmt.Errorf("could not extract notebook ID from response")
+	}
+
+	slug := buildNotebookSlug(notebooksCreateFlags.name)
+	notebookURL := fmt.Sprintf("https://app.datadoghq.com/notebook/%s/%s", id, slug)
+	_, _ = fmt.Fprintln(os.Stdout, notebookURL)
+	return nil
+}
+
+// ---- notebooks update ----
+
+// notebooksUpdateFlags holds the flag values for the update subcommand.
+var notebooksUpdateFlags struct {
+	name     string
+	metric   string
+	start    string
+	end      string
+	liveSpan string
+	hlines   []string
+	vlines   []string
+	note     string
+}
+
+var notebooksUpdateCmd = &cobra.Command{
+	Use:   "update <notebook_id>",
+	Short: "Update a notebook by ID (full replacement)",
+	Long: `Update a notebook in Datadog using a full PUT replacement.
+
+Uses PUT /api/v1/notebooks/{id}.
+
+Since PUT performs a full replacement, all cells not specified will be removed.
+If no cell flags (--metric, --note) are provided, the notebook will have no cells.
+Supply --name along with any cell/time flags to reconstruct the desired state.`,
+	Example: `  # Update only the name (no cells)
+  datadog-cli notebooks update 12345678 --name "New Name"
+
+  # Full update with metric, time range, markers, and note
+  datadog-cli notebooks update 12345678 \
+    --name "New Name" \
+    --metric "avg:system.cpu.user{*}" \
+    --start "2026-04-07" --end "2026-04-08" \
+    --hline "175:ok dashed:Baseline" \
+    --note "Updated notes"
+
+  # Output raw API response as JSON
+  datadog-cli notebooks update 12345678 --name "Test" --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runNotebooksUpdate,
+}
+
+func runNotebooksUpdate(cmd *cobra.Command, args []string) error {
+	notebookID := args[0]
+
+	if notebooksUpdateFlags.name == "" {
+		return fmt.Errorf("--name is required")
+	}
+
+	client := newClient()
+	opts := GetOutputOptions()
+
+	body, err := buildNotebookBody(notebooksUpdateFlags.name, notebooksUpdateFlags.metric,
+		notebooksUpdateFlags.start, notebooksUpdateFlags.end, notebooksUpdateFlags.liveSpan,
+		notebooksUpdateFlags.hlines, notebooksUpdateFlags.vlines, notebooksUpdateFlags.note)
+	if err != nil {
+		return err
+	}
+
+	respBytes, err := client.Put("/api/v1/notebooks/"+notebookID, body, nil)
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(respBytes, &raw); err != nil {
+		return fmt.Errorf("parsing response: %w", err)
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(raw, opts)
+	}
+
+	// Extract notebook ID from response and print URL.
+	nb, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("unexpected response shape: missing \"data\"")
+	}
+	id := formatID(nb["id"])
+	if id == "" || id == "<nil>" {
+		// Fall back to the user-supplied ID.
+		id = notebookID
+	}
+
+	slug := buildNotebookSlug(notebooksUpdateFlags.name)
+	notebookURL := fmt.Sprintf("https://app.datadoghq.com/notebook/%s/%s", id, slug)
+	_, _ = fmt.Fprintln(os.Stdout, notebookURL)
+	return nil
+}
+
+// ---- shared cell/body builder ----
+
+// buildNotebookBody constructs the full Datadog notebooks API request body for
+// both create (POST) and update (PUT) operations.
+func buildNotebookBody(name, metric, start, end, liveSpan string, hlines, vlines []string, note string) (map[string]interface{}, error) {
+	// ---- time range ----
+	var notebookTime map[string]interface{}
+	if liveSpan != "" {
+		notebookTime = map[string]interface{}{
+			"live_span": liveSpan,
+		}
+	} else if start != "" && end != "" {
+		startSecs, err := parseNotebookTime(start)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --start: %w", err)
+		}
+		endSecs, err := parseNotebookTime(end)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --end: %w", err)
+		}
+		notebookTime = map[string]interface{}{
+			"start": strconv.FormatInt(startSecs, 10),
+			"end":   strconv.FormatInt(endSecs, 10),
+		}
+	} else if start != "" || end != "" {
+		return nil, fmt.Errorf("both --start and --end are required when specifying an absolute time range")
+	} else {
+		// Default to last 1 hour
+		notebookTime = map[string]interface{}{
+			"live_span": "1h",
+		}
+	}
+
+	// ---- markers ----
+	var markers []map[string]interface{}
+	for _, h := range hlines {
+		m, err := parseHLine(h)
+		if err != nil {
+			return nil, err
+		}
+		markers = append(markers, m)
+	}
+	for _, v := range vlines {
+		m, err := parseVLine(v)
+		if err != nil {
+			return nil, err
+		}
+		markers = append(markers, m)
+	}
+
+	// ---- cells ----
+	var cells []map[string]interface{}
+
+	// Note cell (optional, placed first)
+	if note != "" {
+		noteCell := map[string]interface{}{
+			"type": "notebook_cells",
+			"attributes": map[string]interface{}{
+				"definition": map[string]interface{}{
+					"type": "markdown",
+					"text": note,
+				},
+			},
+		}
+		cells = append(cells, noteCell)
+	}
+
+	// Timeseries cell (optional)
+	if metric != "" {
+		tsDefinition := map[string]interface{}{
+			"type": "timeseries",
+			"requests": []map[string]interface{}{
+				{
+					"q":            metric,
+					"display_type": "line",
+				},
+			},
+		}
+		if len(markers) > 0 {
+			tsDefinition["markers"] = markers
+		}
+		tsCell := map[string]interface{}{
+			"type": "notebook_cells",
+			"attributes": map[string]interface{}{
+				"definition": tsDefinition,
+			},
+		}
+		cells = append(cells, tsCell)
+	}
+
+	// If no cells at all, create an empty markdown cell as a placeholder.
+	if len(cells) == 0 {
+		cells = append(cells, map[string]interface{}{
+			"type": "notebook_cells",
+			"attributes": map[string]interface{}{
+				"definition": map[string]interface{}{
+					"type": "markdown",
+					"text": "",
+				},
+			},
+		})
+	}
+
+	// ---- request body ----
+	body := map[string]interface{}{
+		"data": map[string]interface{}{
+			"type": "notebooks",
+			"attributes": map[string]interface{}{
+				"name":  name,
+				"time":  notebookTime,
+				"cells": cells,
+			},
+		},
+	}
+
+	return body, nil
+}
+
+// buildNotebookSlug converts a notebook name into a URL-friendly slug.
+func buildNotebookSlug(name string) string {
+	slug := strings.ToLower(name)
+	// Replace spaces and underscores with hyphens.
+	slug = strings.ReplaceAll(slug, " ", "-")
+	slug = strings.ReplaceAll(slug, "_", "-")
+	// Keep only alphanumeric characters and hyphens.
+	var b strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	// Collapse consecutive hyphens.
+	result := b.String()
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+	result = strings.Trim(result, "-")
+	return result
+}
+
+// parseHLine parses a --hline value of the form "VALUE:DISPLAY_TYPE[:LABEL]"
 // into a Datadog notebook marker map.
 func parseHLine(s string) (map[string]interface{}, error) {
 	// Split on ":" — first segment is the numeric/string value, second is display_type,
@@ -414,28 +688,12 @@ func parseVLine(s string) (map[string]interface{}, error) {
 	// The datetime part may contain a space (e.g. "2026-04-07 11:31"), so we
 	// cannot simply split on ":". Strategy: try progressively longer prefixes
 	// until a valid datetime is found.
-	//
-	// Supported datetime formats (all treated as PT → UTC conversion is
-	// performed by parseNotebookTime which loads the America/Los_Angeles zone).
-	// We find the split point by trying to parse up to the first potential
-	// DISPLAY_TYPE separator. The display_type and label come after.
-
-	// Find the last occurrence of a segment that could be a display_type keyword
-	// by iterating from the right.  We look for a ":" that separates the timestamp
-	// part from the style part.  The style part is either the last token or
-	// second-to-last (when a label is also present).
-	//
-	// Algorithm: split everything by ":", then try combining prefix tokens as the
-	// timestamp and see if the timestamp parses.
 
 	colonParts := strings.Split(s, ":")
 	if len(colonParts) < 2 {
 		return nil, fmt.Errorf("invalid --vline %q: expected DATETIME:DISPLAY_TYPE[:LABEL]", s)
 	}
 
-	// Try increasing numbers of colon-joined prefix tokens as the timestamp.
-	// A valid timestamp needs at least 1 token (bare date) and the remaining
-	// tokens provide display_type and optional label.
 	type candidate struct {
 		ts          string
 		displayType string
@@ -447,9 +705,6 @@ func parseVLine(s string) (map[string]interface{}, error) {
 		ts := strings.Join(colonParts[:prefixLen], ":")
 		rest := colonParts[prefixLen:]
 
-		// Try to parse the timestamp — we accept "YYYY-MM-DD HH:MM" style,
-		// which means it may span two colon-parts (date part + HH + MM).
-		// parseNotebookTime accepts "2006-01-02 15:04" format.
 		if _, err := parseNotebookTime(ts); err == nil {
 			displayType := strings.TrimSpace(rest[0])
 			label := ""
@@ -513,176 +768,6 @@ func parseNotebookTime(s string) (int64, error) {
 	return 0, fmt.Errorf("unrecognised datetime %q (supported: \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\")", s)
 }
 
-func runNotebooksCreate(cmd *cobra.Command, args []string) error {
-	if notebooksCreateFlags.name == "" {
-		return fmt.Errorf("--name is required")
-	}
-
-	client := newClient()
-	opts := GetOutputOptions()
-
-	// ---- time range ----
-	var notebookTime map[string]interface{}
-	if notebooksCreateFlags.liveSpan != "" {
-		notebookTime = map[string]interface{}{
-			"live_span": notebooksCreateFlags.liveSpan,
-		}
-	} else if notebooksCreateFlags.start != "" && notebooksCreateFlags.end != "" {
-		startSecs, err := parseNotebookTime(notebooksCreateFlags.start)
-		if err != nil {
-			return fmt.Errorf("invalid --start: %w", err)
-		}
-		endSecs, err := parseNotebookTime(notebooksCreateFlags.end)
-		if err != nil {
-			return fmt.Errorf("invalid --end: %w", err)
-		}
-		notebookTime = map[string]interface{}{
-			"start": strconv.FormatInt(startSecs, 10),
-			"end":   strconv.FormatInt(endSecs, 10),
-		}
-	} else if notebooksCreateFlags.start != "" || notebooksCreateFlags.end != "" {
-		return fmt.Errorf("both --start and --end are required when specifying an absolute time range")
-	} else {
-		// Default to last 1 hour
-		notebookTime = map[string]interface{}{
-			"live_span": "1h",
-		}
-	}
-
-	// ---- markers ----
-	var markers []map[string]interface{}
-	for _, h := range notebooksCreateFlags.hlines {
-		m, err := parseHLine(h)
-		if err != nil {
-			return err
-		}
-		markers = append(markers, m)
-	}
-	for _, v := range notebooksCreateFlags.vlines {
-		m, err := parseVLine(v)
-		if err != nil {
-			return err
-		}
-		markers = append(markers, m)
-	}
-
-	// ---- cells ----
-	var cells []map[string]interface{}
-
-	// Note cell (optional, placed first)
-	if notebooksCreateFlags.note != "" {
-		noteCell := map[string]interface{}{
-			"type": "notebook_cells",
-			"attributes": map[string]interface{}{
-				"definition": map[string]interface{}{
-					"type": "markdown",
-					"text": notebooksCreateFlags.note,
-				},
-			},
-		}
-		cells = append(cells, noteCell)
-	}
-
-	// Timeseries cell (optional)
-	if notebooksCreateFlags.metric != "" {
-		tsDefinition := map[string]interface{}{
-			"type": "timeseries",
-			"requests": []map[string]interface{}{
-				{
-					"q":            notebooksCreateFlags.metric,
-					"display_type": "line",
-				},
-			},
-		}
-		if len(markers) > 0 {
-			tsDefinition["markers"] = markers
-		}
-		tsCell := map[string]interface{}{
-			"type": "notebook_cells",
-			"attributes": map[string]interface{}{
-				"definition": tsDefinition,
-			},
-		}
-		cells = append(cells, tsCell)
-	}
-
-	// If no cells at all, create an empty markdown cell as a placeholder.
-	if len(cells) == 0 {
-		cells = append(cells, map[string]interface{}{
-			"type": "notebook_cells",
-			"attributes": map[string]interface{}{
-				"definition": map[string]interface{}{
-					"type": "markdown",
-					"text": "",
-				},
-			},
-		})
-	}
-
-	// ---- request body ----
-	body := map[string]interface{}{
-		"data": map[string]interface{}{
-			"type": "notebooks",
-			"attributes": map[string]interface{}{
-				"name":  notebooksCreateFlags.name,
-				"time":  notebookTime,
-				"cells": cells,
-			},
-		},
-	}
-
-	respBytes, err := client.Post("/api/v1/notebooks", body, nil)
-	if err != nil {
-		return err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(respBytes, &raw); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
-	}
-
-	if opts.JSON {
-		return output.RenderJSON(raw, opts)
-	}
-
-	// Extract notebook ID from response and print URL.
-	nb, ok := raw["data"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("unexpected response shape: missing \"data\"")
-	}
-	id := formatID(nb["id"])
-	if id == "" || id == "<nil>" {
-		return fmt.Errorf("could not extract notebook ID from response")
-	}
-
-	// Build URL: name becomes a URL slug (lowercase, spaces→hyphens, strip non-word chars).
-	slug := buildNotebookSlug(notebooksCreateFlags.name)
-	notebookURL := fmt.Sprintf("https://app.datadoghq.com/notebook/%s/%s", id, slug)
-	_, _ = fmt.Fprintln(os.Stdout, notebookURL)
-	return nil
-}
-
-// buildNotebookSlug converts a notebook name into a URL-friendly slug.
-func buildNotebookSlug(name string) string {
-	slug := strings.ToLower(name)
-	// Replace spaces and underscores with hyphens.
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-	// Keep only alphanumeric characters and hyphens.
-	var b strings.Builder
-	for _, r := range slug {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			b.WriteRune(r)
-		}
-	}
-	// Collapse consecutive hyphens.
-	result := b.String()
-	for strings.Contains(result, "--") {
-		result = strings.ReplaceAll(result, "--", "-")
-	}
-	result = strings.Trim(result, "-")
-	return result
-}
 // ---- helpers ----
 
 // notebooksStringField safely extracts a string value from a map.
@@ -767,11 +852,23 @@ func init() {
 	cf.StringArrayVar(&notebooksCreateFlags.vlines, "vline", nil, "Vertical marker: DATETIME:DISPLAY_TYPE[:LABEL] (repeatable)")
 	cf.StringVar(&notebooksCreateFlags.note, "note", "", "Markdown text for a note cell placed before the timeseries cell")
 
+	// notebooks update flags
+	uf := notebooksUpdateCmd.Flags()
+	uf.StringVar(&notebooksUpdateFlags.name, "name", "", "Notebook name (required)")
+	uf.StringVar(&notebooksUpdateFlags.metric, "metric", "", "Metric query for timeseries cell (e.g. avg:system.cpu.user{*})")
+	uf.StringVar(&notebooksUpdateFlags.start, "start", "", "Absolute start time: \"YYYY-MM-DD HH:MM\" (PT)")
+	uf.StringVar(&notebooksUpdateFlags.end, "end", "", "Absolute end time: \"YYYY-MM-DD HH:MM\" (PT)")
+	uf.StringVar(&notebooksUpdateFlags.liveSpan, "live-span", "", "Relative time window e.g. 1h, 4h, 1d (alternative to --start/--end)")
+	uf.StringArrayVar(&notebooksUpdateFlags.hlines, "hline", nil, "Horizontal marker: VALUE:DISPLAY_TYPE[:LABEL] (repeatable)")
+	uf.StringArrayVar(&notebooksUpdateFlags.vlines, "vline", nil, "Vertical marker: DATETIME:DISPLAY_TYPE[:LABEL] (repeatable)")
+	uf.StringVar(&notebooksUpdateFlags.note, "note", "", "Markdown text for a note cell placed before the timeseries cell")
+
 	// Wire up subcommands
 	notebooksCmd.AddCommand(notebooksListCmd)
 	notebooksCmd.AddCommand(notebooksGetCmd)
 	notebooksCmd.AddCommand(notebooksDeleteCmd)
 	notebooksCmd.AddCommand(notebooksCreateCmd)
+	notebooksCmd.AddCommand(notebooksUpdateCmd)
 
 	// Register with root
 	rootCmd.AddCommand(notebooksCmd)

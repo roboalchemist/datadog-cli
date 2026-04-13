@@ -235,3 +235,71 @@ func TestBuildNotebookSlug(t *testing.T) {
 		}
 	}
 }
+
+// ---- buildNotebookBody ----
+
+func TestBuildNotebookBodyDefaultTime(t *testing.T) {
+	body, err := buildNotebookBody("Test", "", "", "", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing data key")
+	}
+	attrs, ok := data["attributes"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing attributes key")
+	}
+	nbTime, ok := attrs["time"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing time key")
+	}
+	if nbTime["live_span"] != "1h" {
+		t.Errorf("default live_span: got %v, want 1h", nbTime["live_span"])
+	}
+}
+
+func TestBuildNotebookBodyWithMetric(t *testing.T) {
+	body, err := buildNotebookBody("Test", "avg:system.cpu.user{*}", "", "", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data := body["data"].(map[string]interface{})
+	attrs := data["attributes"].(map[string]interface{})
+	cells, ok := attrs["cells"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("cells not a []map[string]interface{}")
+	}
+	if len(cells) != 1 {
+		t.Fatalf("expected 1 cell, got %d", len(cells))
+	}
+	cellAttrs := cells[0]["attributes"].(map[string]interface{})
+	def := cellAttrs["definition"].(map[string]interface{})
+	if def["type"] != "timeseries" {
+		t.Errorf("cell type: got %v, want timeseries", def["type"])
+	}
+}
+
+func TestBuildNotebookBodyAbsoluteTime(t *testing.T) {
+	body, err := buildNotebookBody("Test", "", "2026-04-07", "2026-04-08", "", nil, nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data := body["data"].(map[string]interface{})
+	attrs := data["attributes"].(map[string]interface{})
+	nbTime := attrs["time"].(map[string]interface{})
+	if nbTime["start"] == nil || nbTime["end"] == nil {
+		t.Error("expected start and end in time object")
+	}
+	if nbTime["live_span"] != nil {
+		t.Error("expected no live_span when start/end are set")
+	}
+}
+
+func TestBuildNotebookBodyMissingEndError(t *testing.T) {
+	_, err := buildNotebookBody("Test", "", "2026-04-07", "", "", nil, nil, "")
+	if err == nil {
+		t.Error("expected error when only --start is provided")
+	}
+}
