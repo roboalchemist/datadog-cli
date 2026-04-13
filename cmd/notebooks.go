@@ -298,6 +298,53 @@ func runNotebooksGet(cmd *cobra.Command, args []string) error {
 	return output.RenderTable(cols, tableRows, rows, opts)
 }
 
+// ---- notebooks delete ----
+
+var notebooksDeleteConfirm bool
+
+var notebooksDeleteCmd = &cobra.Command{
+	Use:   "delete <notebook_id>",
+	Short: "Delete a notebook by ID",
+	Long: `Delete a notebook from Datadog by its numeric ID.
+
+Uses DELETE /api/v1/notebooks/{id}.
+
+The --confirm flag is required as a safety guard to prevent accidental deletion.`,
+	Example: `  # Delete a notebook (requires --confirm)
+  datadog-cli notebooks delete 123456 --confirm
+
+  # Without --confirm, prints a safety message and exits
+  datadog-cli notebooks delete 123456`,
+	Args: cobra.ExactArgs(1),
+	RunE: runNotebooksDelete,
+}
+
+func runNotebooksDelete(cmd *cobra.Command, args []string) error {
+	notebookID := args[0]
+	opts := GetOutputOptions()
+
+	if !notebooksDeleteConfirm {
+		_, _ = fmt.Fprintf(os.Stdout, "Use --confirm to delete notebook %s\n", notebookID)
+		return nil
+	}
+
+	client := newClient()
+	_, err := client.Delete("/api/v1/notebooks/"+notebookID, nil)
+	if err != nil {
+		return err
+	}
+
+	if opts.JSON {
+		return output.RenderJSON(map[string]interface{}{
+			"id":      notebookID,
+			"deleted": true,
+		}, opts)
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "Deleted notebook %s\n", notebookID)
+	return nil
+}
+
 // ---- helpers ----
 
 // notebooksStringField safely extracts a string value from a map.
@@ -368,9 +415,13 @@ func init() {
 	// notebooks list flags
 	notebooksListCmd.Flags().BoolVar(&notebooksListAll, "all", false, "Fetch all pages until exhausted (overrides --limit)")
 
+	// notebooks delete flags
+	notebooksDeleteCmd.Flags().BoolVar(&notebooksDeleteConfirm, "confirm", false, "Confirm deletion (required)")
+
 	// Wire up subcommands
 	notebooksCmd.AddCommand(notebooksListCmd)
 	notebooksCmd.AddCommand(notebooksGetCmd)
+	notebooksCmd.AddCommand(notebooksDeleteCmd)
 
 	// Register with root
 	rootCmd.AddCommand(notebooksCmd)
