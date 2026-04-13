@@ -1,6 +1,6 @@
 # datadog-cli
 
-A read-only CLI for the Datadog API. Query logs, metrics, monitors, dashboards, hosts, APM traces, SLOs, incidents, RUM, audit events, and more from the command line.
+A CLI for the Datadog API. Query logs, metrics, monitors, dashboards, hosts, APM traces, SLOs, incidents, RUM, audit events, and more from the command line. Also supports notebook write operations (create, update, delete).
 
 ## Installation
 
@@ -111,7 +111,7 @@ datadog-cli monitors list --no-color
 | `events` | `list`, `get` | Event stream |
 | `downtimes` | `list`, `get` | Downtime schedules |
 | `incidents` | `list`, `get` | Incidents |
-| `notebooks` | `list`, `get` | Notebooks |
+| `notebooks` | `list`, `get`, `create`, `update`, `delete` | Notebooks |
 | `rum` | `search`, `aggregate` | Real User Monitoring |
 | `slos` | `list`, `get`, `history` | Service Level Objectives |
 | `tags` | `list`, `get` | Infrastructure tags |
@@ -162,6 +162,33 @@ datadog-cli metrics query "avg:system.cpu.user{env:production}" --from 1h
 **Search audit trail:**
 ```bash
 datadog-cli audit search -q "action:deleted @asset.type:dashboard" --from 24h
+```
+
+**Create an annotated incident investigation notebook:**
+```bash
+datadog-cli notebooks create \
+  --name "Apr 7 Karpenter Cascade" \
+  --metric "avg:karpenter.cluster_state.node_count{*}" \
+  --start "2026-04-07 07:00" --end "2026-04-08 17:00" \
+  --hline "175:ok dashed:Pre-incident baseline" \
+  --hline "130:error dashed:Post-eviction baseline" \
+  --vline "2026-04-07 11:31:error bold" \
+  --note "## Timeline
+
+- 7:56 AM: Karpenter consolidation begins
+- 11:31 AM: Mass eviction (-33 nodes)
+- 1:46 PM: Mitigation applied"
+# => https://app.datadoghq.com/notebook/12345678/apr-7-karpenter-cascade
+```
+
+**Update a notebook name:**
+```bash
+datadog-cli notebooks update 12345678 --name "Apr 7-8 Karpenter Incident"
+```
+
+**Delete a notebook:**
+```bash
+datadog-cli notebooks delete 12345678 --confirm
 ```
 
 ## Time Formats

@@ -613,6 +613,105 @@ Argument: `<notebook_id>` (required, positional)
 
 Required scope: `notebooks_read`
 
+### notebooks create
+
+Create a new notebook with an optional metric timeseries cell, horizontal/vertical markers, and a markdown note cell.
+
+```bash
+# Create a notebook with a metric timeseries over an absolute time range
+datadog-cli notebooks create \
+  --name "Apr 7 Incident" \
+  --metric "avg:karpenter.cluster_state.node_count{*}" \
+  --start "2026-04-07 07:00" --end "2026-04-08 17:00" \
+  --hline "175:ok dashed:Pre-incident baseline" \
+  --hline "130:error dashed:Post-eviction baseline" \
+  --vline "2026-04-07 11:31:error bold:Mass eviction" \
+  --note "## Timeline\n\n- 11:31 AM: Mass eviction\n- 1:46 PM: Mitigation"
+# => https://app.datadoghq.com/notebook/12345678/apr-7-incident
+
+# Create a note-only notebook with a live span
+datadog-cli notebooks create --name "My Notes" --live-span "1h" --note "## Notes"
+
+# Output raw API response as JSON
+datadog-cli notebooks create --name "Test" --metric "avg:system.cpu.user{*}" --json
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--name` | (required) | Notebook name |
+| `--metric` | | Metric query for timeseries cell (e.g. `avg:system.cpu.user{*}`) |
+| `--start` | | Absolute start time: `"YYYY-MM-DD HH:MM"` (PT) |
+| `--end` | | Absolute end time: `"YYYY-MM-DD HH:MM"` (PT) |
+| `--live-span` | `1h` (default if no time range) | Relative time window e.g. `1h`, `4h`, `1d` (alternative to `--start`/`--end`) |
+| `--hline` | | Horizontal marker: `VALUE:DISPLAY_TYPE[:LABEL]` — repeatable (e.g. `"175:ok dashed:Baseline"`) |
+| `--vline` | | Vertical marker: `DATETIME:DISPLAY_TYPE[:LABEL]` — repeatable (e.g. `"2026-04-07 11:31:error bold:Incident"`) |
+| `--note` | | Markdown text for a note cell placed before the timeseries cell |
+
+**Output:** Notebook URL — `https://app.datadoghq.com/notebook/{id}/{slug}`. Use `--json` for the full API response.
+
+**Marker format details:**
+- `--hline "VALUE:DISPLAY_TYPE[:LABEL]"` — `VALUE` is a numeric y-axis value; `DISPLAY_TYPE` is a Datadog marker display type (e.g. `ok dashed`, `error bold`, `warning`); `LABEL` is optional free text.
+- `--vline "DATETIME:DISPLAY_TYPE[:LABEL]"` — `DATETIME` is `"YYYY-MM-DD HH:MM"` or `"YYYY-MM-DD"` (PT); creates a 2-minute band centred on the timestamp.
+
+Required scope: `notebooks_write`
+
+### notebooks update
+
+Update a notebook by ID using a full PUT replacement. All cells not specified are removed.
+
+```bash
+# Update only the name (all cells removed)
+datadog-cli notebooks update 12345678 --name "New Name"
+
+# Full update with metric, time range, markers, and note
+datadog-cli notebooks update 12345678 \
+  --name "New Name" \
+  --metric "avg:system.cpu.user{*}" \
+  --start "2026-04-07" --end "2026-04-08" \
+  --hline "175:ok dashed:Baseline" \
+  --note "Updated notes"
+
+# Output raw API response as JSON
+datadog-cli notebooks update 12345678 --name "Test" --json
+```
+
+Argument: `<notebook_id>` (required, positional)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--name` | (required) | Notebook name |
+| `--metric` | | Metric query for timeseries cell |
+| `--start` | | Absolute start time: `"YYYY-MM-DD HH:MM"` (PT) |
+| `--end` | | Absolute end time: `"YYYY-MM-DD HH:MM"` (PT) |
+| `--live-span` | `1h` (default if no time range) | Relative time window |
+| `--hline` | | Horizontal marker: `VALUE:DISPLAY_TYPE[:LABEL]` (repeatable) |
+| `--vline` | | Vertical marker: `DATETIME:DISPLAY_TYPE[:LABEL]` (repeatable) |
+| `--note` | | Markdown text for a note cell |
+
+**Output:** Updated notebook URL. Use `--json` for the full API response.
+
+Required scope: `notebooks_write`
+
+### notebooks delete
+
+Delete a notebook by ID. Requires `--confirm` as a safety guard.
+
+```bash
+# Delete a notebook (requires --confirm)
+datadog-cli notebooks delete 12345678 --confirm
+
+# Without --confirm, prints a safety message and exits without deleting
+datadog-cli notebooks delete 12345678
+```
+
+Argument: `<notebook_id>` (required, positional)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--confirm` | false | Confirm deletion (required to actually delete) |
+
+Required scope: `notebooks_write`
+
 ---
 
 ## rum
@@ -903,7 +1002,8 @@ datadog-cli completion powershell
 | `metrics_read` | metrics |
 | `monitors_downtime` | downtimes |
 | `monitors_read` | monitors |
-| `notebooks_read` | notebooks |
+| `notebooks_read` | notebooks list, get |
+| `notebooks_write` | notebooks create, update, delete |
 | `processes_read` | processes |
 | `rum_read` | rum |
 | `slos_read` | slos |
