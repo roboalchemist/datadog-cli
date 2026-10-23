@@ -14,6 +14,8 @@ import (
 )
 
 // captureStdout redirects os.Stdout to a buffer for the duration of fn.
+// The pipe is drained concurrently in a goroutine so large output cannot
+// deadlock against the ~64 KB os.Pipe kernel buffer.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -23,15 +25,19 @@ func captureStdout(t *testing.T, fn func()) string {
 	origStdout := os.Stdout
 	os.Stdout = w
 
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = buf.ReadFrom(r)
+		close(done)
+	}()
+
 	fn()
 
 	_ = w.Close()
 	os.Stdout = origStdout
+	<-done
 
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("ReadFrom pipe: %v", err)
-	}
 	return buf.String()
 }
 
@@ -660,6 +666,8 @@ func TestPrintErrorf_WithColor(t *testing.T) {
 // --- captureStderr helper ---
 
 // captureStderr redirects os.Stderr to a buffer for the duration of fn.
+// The pipe is drained concurrently in a goroutine so large output cannot
+// deadlock against the ~64 KB os.Pipe kernel buffer.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -669,15 +677,19 @@ func captureStderr(t *testing.T, fn func()) string {
 	origStderr := os.Stderr
 	os.Stderr = w
 
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = buf.ReadFrom(r)
+		close(done)
+	}()
+
 	fn()
 
 	_ = w.Close()
 	os.Stderr = origStderr
+	<-done
 
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(r); err != nil {
-		t.Fatalf("ReadFrom pipe: %v", err)
-	}
 	return buf.String()
 }
 

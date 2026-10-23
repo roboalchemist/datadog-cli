@@ -3,8 +3,10 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gitea.roboalch.com/roboalchemist/datadog-cli/pkg/api"
@@ -15,6 +17,23 @@ func skipIfNoCredentials(t *testing.T) {
 	t.Helper()
 	if os.Getenv("DD_API_KEY") == "" || os.Getenv("DD_APP_KEY") == "" {
 		t.Skip("skipping integration test: DD_API_KEY and DD_APP_KEY must be set")
+	}
+}
+
+// skipIfAccessDenied skips the test when the live API returns 403 Access
+// denied — i.e. the configured DD_APP_KEY scope does not cover the endpoint.
+// Integration tests run against a real org whose key scopes vary per endpoint
+// (e.g. usage, users, api-keys, and audit-log endpoints need elevated scopes),
+// so a missing scope is an environment limitation, not a product failure.
+// 401 (invalid credentials) and all other errors do NOT skip and still fail.
+func skipIfAccessDenied(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	var authErr *api.AuthenticationError
+	if errors.As(err, &authErr) && strings.Contains(authErr.Error(), "Access denied") {
+		t.Skipf("skipping: DD_APP_KEY lacks permission for this endpoint (403 access denied)")
 	}
 }
 

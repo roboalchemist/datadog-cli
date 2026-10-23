@@ -29,6 +29,10 @@ import (
 // captureStdoutIntegration captures stdout for an integration test function.
 // Named differently from captureStdout (unit test helper in pagination_test.go)
 // to avoid conflicts in the same package.
+//
+// The pipe is drained concurrently in a goroutine: live API responses can be
+// multi-megabyte (e.g. `tags list --json`), and an undrained os.Pipe blocks
+// writes once its ~64 KB kernel buffer fills, deadlocking the test.
 func captureStdoutIntegration(t *testing.T, f func() error) (string, error) {
 	t.Helper()
 	origStdout := os.Stdout
@@ -38,15 +42,19 @@ func captureStdoutIntegration(t *testing.T, f func() error) (string, error) {
 	}
 	os.Stdout = w
 
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+
 	runErr := f()
 
 	_ = w.Close()
 	os.Stdout = origStdout
+	<-done
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
-	}
 	return buf.String(), runErr
 }
 
@@ -144,6 +152,7 @@ func TestIntegration_LogsSearch_Smoke(t *testing.T) {
 		return runLogsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("logs search smoke: unexpected error: %v", err)
 	}
 
@@ -171,6 +180,7 @@ func TestIntegration_LogsSearch_LimitOne(t *testing.T) {
 		return runLogsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("logs search --limit 1: unexpected error: %v", err)
 	}
 
@@ -201,6 +211,7 @@ func TestIntegration_LogsSearch_LargeLimit(t *testing.T) {
 		return runLogsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("logs search --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -224,6 +235,7 @@ func TestIntegration_LogsSearch_JSON(t *testing.T) {
 		return runLogsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("logs search --json: unexpected error: %v", err)
 	}
 
@@ -251,6 +263,7 @@ func TestIntegration_RumSearch_Smoke(t *testing.T) {
 		return runRumSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("rum search smoke: unexpected error: %v", err)
 	}
 }
@@ -273,6 +286,7 @@ func TestIntegration_RumSearch_LimitOne(t *testing.T) {
 		return runRumSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("rum search --limit 1: unexpected error: %v", err)
 	}
 
@@ -302,6 +316,7 @@ func TestIntegration_RumSearch_LargeLimit(t *testing.T) {
 		return runRumSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("rum search --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -324,6 +339,7 @@ func TestIntegration_RumSearch_JSON(t *testing.T) {
 		return runRumSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("rum search --json: unexpected error: %v", err)
 	}
 
@@ -350,6 +366,7 @@ func TestIntegration_AuditSearch_Smoke(t *testing.T) {
 		return runAuditSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("audit search smoke: unexpected error: %v", err)
 	}
 }
@@ -372,6 +389,7 @@ func TestIntegration_AuditSearch_LimitOne(t *testing.T) {
 		return runAuditSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("audit search --limit 1: unexpected error: %v", err)
 	}
 
@@ -401,6 +419,7 @@ func TestIntegration_AuditSearch_LargeLimit(t *testing.T) {
 		return runAuditSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("audit search --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -423,6 +442,7 @@ func TestIntegration_AuditSearch_JSON(t *testing.T) {
 		return runAuditSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("audit search --json: unexpected error: %v", err)
 	}
 
@@ -450,6 +470,7 @@ func TestIntegration_TracesSearch_Smoke(t *testing.T) {
 		return runTracesSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("traces search smoke: unexpected error: %v", err)
 	}
 }
@@ -473,6 +494,7 @@ func TestIntegration_TracesSearch_LimitOne(t *testing.T) {
 		return runTracesSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("traces search --limit 1: unexpected error: %v", err)
 	}
 
@@ -503,6 +525,7 @@ func TestIntegration_TracesSearch_LargeLimit(t *testing.T) {
 		return runTracesSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("traces search --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -526,6 +549,7 @@ func TestIntegration_TracesSearch_JSON(t *testing.T) {
 		return runTracesSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("traces search --json: unexpected error: %v", err)
 	}
 
@@ -550,6 +574,7 @@ func TestIntegration_ProcessesList_Smoke(t *testing.T) {
 		return runProcessesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("processes list smoke: unexpected error: %v", err)
 	}
 }
@@ -570,6 +595,7 @@ func TestIntegration_ProcessesList_LimitOne(t *testing.T) {
 		return runProcessesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("processes list --limit 1: unexpected error: %v", err)
 	}
 
@@ -597,6 +623,7 @@ func TestIntegration_ProcessesList_LargeLimit(t *testing.T) {
 		return runProcessesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("processes list --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -617,6 +644,7 @@ func TestIntegration_ProcessesList_JSON(t *testing.T) {
 		return runProcessesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("processes list --json: unexpected error: %v", err)
 	}
 
@@ -640,6 +668,7 @@ func TestIntegration_ContainersList_Smoke(t *testing.T) {
 		return runContainersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("containers list smoke: unexpected error: %v", err)
 	}
 }
@@ -659,6 +688,7 @@ func TestIntegration_ContainersList_LimitOne(t *testing.T) {
 		return runContainersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("containers list --limit 1: unexpected error: %v", err)
 	}
 
@@ -685,6 +715,7 @@ func TestIntegration_ContainersList_LargeLimit(t *testing.T) {
 		return runContainersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("containers list --limit 2000: unexpected error: %v", err)
 	}
 }
@@ -704,6 +735,7 @@ func TestIntegration_ContainersList_JSON(t *testing.T) {
 		return runContainersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("containers list --json: unexpected error: %v", err)
 	}
 

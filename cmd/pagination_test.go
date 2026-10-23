@@ -36,6 +36,8 @@ func setMockServer(t *testing.T, srv *httptest.Server) {
 }
 
 // captureStdout runs f() and returns what it wrote to os.Stdout.
+// The pipe is drained concurrently in a goroutine so large output cannot
+// deadlock against the ~64 KB os.Pipe kernel buffer.
 func captureStdout(t *testing.T, f func()) string {
 	t.Helper()
 	origStdout := os.Stdout
@@ -45,15 +47,19 @@ func captureStdout(t *testing.T, f func()) string {
 	}
 	os.Stdout = w
 
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+
 	f()
 
 	_ = w.Close()
 	os.Stdout = origStdout
+	<-done
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
-	}
 	return buf.String()
 }
 

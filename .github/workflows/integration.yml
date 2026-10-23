@@ -25,5 +25,7 @@ jobs:
         env:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
           DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
-        timeout-minutes: 5
+        # Headroom above go test's -timeout 5m so a hung test produces a full
+        # test timeout report instead of the step being killed mid-run.
+        timeout-minutes: 10
         run: make test-integration

@@ -19,6 +19,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,7 @@ func TestIntegration_TagsList_Smoke(t *testing.T) {
 		return runTagsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("tags list smoke: unexpected error: %v", err)
 	}
 }
@@ -71,6 +73,7 @@ func TestIntegration_TagsList_JSON(t *testing.T) {
 		return runTagsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("tags list --json: unexpected error: %v", err)
 	}
 
@@ -100,6 +103,7 @@ func TestIntegration_MetricsList_Smoke(t *testing.T) {
 		return runMetricsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("metrics list smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "metrics list")
@@ -118,6 +122,7 @@ func TestIntegration_MetricsList_JSON(t *testing.T) {
 		return runMetricsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("metrics list --json: unexpected error: %v", err)
 	}
 
@@ -148,6 +153,7 @@ func TestIntegration_MetricsSearch_Smoke(t *testing.T) {
 		return runMetricsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("metrics search smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "metrics search")
@@ -166,6 +172,7 @@ func TestIntegration_MetricsSearch_JSON(t *testing.T) {
 		return runMetricsSearch(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("metrics search --json: unexpected error: %v", err)
 	}
 
@@ -200,6 +207,7 @@ func TestIntegration_EventsList_Smoke(t *testing.T) {
 		return runEventsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("events list smoke: unexpected error: %v", err)
 	}
 }
@@ -222,6 +230,7 @@ func TestIntegration_EventsList_JSON(t *testing.T) {
 		return runEventsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("events list --json: unexpected error: %v", err)
 	}
 
@@ -250,6 +259,7 @@ func TestIntegration_UsersList_Smoke(t *testing.T) {
 		return runUsersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("users list smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "users list")
@@ -267,6 +277,7 @@ func TestIntegration_UsersList_JSON(t *testing.T) {
 		return runUsersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("users list --json: unexpected error: %v", err)
 	}
 
@@ -299,6 +310,7 @@ func TestIntegration_APIKeysList_Smoke(t *testing.T) {
 		return runAPIKeysList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("api-keys list smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "api-keys list")
@@ -316,6 +328,7 @@ func TestIntegration_APIKeysList_JSON(t *testing.T) {
 		return runAPIKeysList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("api-keys list --json: unexpected error: %v", err)
 	}
 
@@ -348,6 +361,7 @@ func TestIntegration_PipelinesList_Smoke(t *testing.T) {
 		return runPipelinesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("pipelines list smoke: unexpected error: %v", err)
 	}
 }
@@ -364,6 +378,7 @@ func TestIntegration_PipelinesList_JSON(t *testing.T) {
 		return runPipelinesList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("pipelines list --json: unexpected error: %v", err)
 	}
 
@@ -390,6 +405,7 @@ func TestIntegration_UsageSummary_Smoke(t *testing.T) {
 		return runUsageSummary(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage summary smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "usage summary")
@@ -411,6 +427,7 @@ func TestIntegration_UsageSummary_JSON(t *testing.T) {
 		return runUsageSummary(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage summary --json: unexpected error: %v", err)
 	}
 
@@ -446,6 +463,7 @@ func TestIntegration_UsageTopMetrics_Smoke(t *testing.T) {
 		return runUsageTopMetrics(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage top-metrics smoke: unexpected error: %v", err)
 	}
 
@@ -479,6 +497,7 @@ func TestIntegration_UsageTopMetrics_JSON(t *testing.T) {
 		return runUsageTopMetrics(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage top-metrics --json: unexpected error: %v", err)
 	}
 
@@ -522,6 +541,7 @@ func TestIntegration_UsageTopMetrics_AllPaginates(t *testing.T) {
 		return runUsageTopMetrics(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage top-metrics (single-page): unexpected error: %v", err)
 	}
 
@@ -548,6 +568,7 @@ func TestIntegration_UsageTopMetrics_AllPaginates(t *testing.T) {
 		return runUsageTopMetrics(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("usage top-metrics --all: unexpected error: %v", err)
 	}
 
@@ -576,6 +597,7 @@ func TestIntegration_HostsTotals_Smoke(t *testing.T) {
 		return runHostsTotals(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("hosts totals smoke: unexpected error: %v", err)
 	}
 	requireNonEmptyOutput(t, out, "hosts totals")
@@ -592,6 +614,7 @@ func TestIntegration_HostsTotals_JSON(t *testing.T) {
 		return runHostsTotals(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("hosts totals --json: unexpected error: %v", err)
 	}
 
@@ -621,6 +644,7 @@ func TestIntegration_APMServices_Smoke(t *testing.T) {
 		return runAPMServices(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm services smoke: unexpected error: %v", err)
 	}
 
@@ -643,6 +667,7 @@ func TestIntegration_APMServices_JSON(t *testing.T) {
 		return runAPMServices(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm services --json: unexpected error: %v", err)
 	}
 
@@ -672,6 +697,7 @@ func TestIntegration_APMDefinitions_Smoke(t *testing.T) {
 		return runAPMDefinitions(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm definitions smoke: unexpected error: %v", err)
 	}
 
@@ -694,6 +720,7 @@ func TestIntegration_APMDefinitions_JSON(t *testing.T) {
 		return runAPMDefinitions(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm definitions --json: unexpected error: %v", err)
 	}
 
@@ -727,6 +754,7 @@ func TestIntegration_APMDependencies_Smoke(t *testing.T) {
 		return runAPMDependencies(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm dependencies smoke: unexpected error: %v", err)
 	}
 }
@@ -748,6 +776,7 @@ func TestIntegration_APMDependencies_JSON(t *testing.T) {
 		return runAPMDependencies(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("apm dependencies --json: unexpected error: %v", err)
 	}
 
@@ -779,6 +808,7 @@ func TestIntegration_MonitorsGet(t *testing.T) {
 		return runMonitorsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("monitors list (pre-get): unexpected error: %v", err)
 	}
 
@@ -800,8 +830,18 @@ func TestIntegration_MonitorsGet(t *testing.T) {
 	if !ok {
 		t.Fatalf("monitors list: first item is not a map")
 	}
-	monitorID := fmt.Sprintf("%v", firstMonitor["id"])
-	if monitorID == "" || monitorID == "<nil>" {
+	// JSON numbers decode as float64; fmt's %v would render them in
+	// scientific notation (e.g. 3.3478887e+07), producing an invalid ID.
+	var monitorID string
+	switch id := firstMonitor["id"].(type) {
+	case string:
+		monitorID = id
+	case float64:
+		monitorID = strconv.FormatInt(int64(id), 10)
+	case json.Number:
+		monitorID = id.String()
+	}
+	if monitorID == "" {
 		t.Skip("could not extract monitor ID; skipping")
 	}
 
@@ -812,6 +852,7 @@ func TestIntegration_MonitorsGet(t *testing.T) {
 		return runMonitorsGet(nil, []string{monitorID})
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("monitors get %s: unexpected error: %v", monitorID, err)
 	}
 	requireNonEmptyOutput(t, out, fmt.Sprintf("monitors get %s", monitorID))
@@ -832,6 +873,7 @@ func TestIntegration_UsersGet(t *testing.T) {
 		return runUsersList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("users list (pre-get): unexpected error: %v", err)
 	}
 
@@ -860,6 +902,7 @@ func TestIntegration_UsersGet(t *testing.T) {
 		return runUsersGet(nil, []string{userID})
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("users get %s: unexpected error: %v", userID, err)
 	}
 	requireNonEmptyOutput(t, out, fmt.Sprintf("users get %s", userID))
@@ -889,6 +932,7 @@ func TestIntegration_SLOsGet(t *testing.T) {
 		return runSLOsList(nil, nil)
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("slos list (pre-get): unexpected error: %v", err)
 	}
 
@@ -917,6 +961,7 @@ func TestIntegration_SLOsGet(t *testing.T) {
 		return runSLOsGet(nil, []string{sloID})
 	})
 	if err != nil {
+		skipIfAccessDenied(t, err)
 		t.Fatalf("slos get %s: unexpected error: %v", sloID, err)
 	}
 	requireNonEmptyOutput(t, out, fmt.Sprintf("slos get %s", sloID))
